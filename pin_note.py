@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
     QFont, QTextCursor, QTextDocumentFragment, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
     QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup,
-    QCursor, QImage
+    QCursor, QImage, QPen, QBrush
 )
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -241,11 +241,255 @@ def convert_markdown_tables(text: str) -> str:
 
 
 class RichTextEditor(QTextEdit):
-    """Rich text editor with native support for pasted screenshots, images, HTML tables, and markdown tables."""
+    """Rich text editor with native support for pasted screenshots, draggable corner resize handles, and tables."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.parent_app = parent
         self.setAcceptRichText(True)
         self.setTabChangesFocus(False)
+
+        # Image selection & resize state
+        self.selected_image_pos = -1
+        self.active_handle = None
+        self.drag_start_pos = None
+        self.drag_start_rect = None
+        self.current_drag_rect = None
+
+        # Viewport monitoring for handle rendering & interaction
+        self.viewport().installEventFilter(self)
+        self.viewport().setMouseTracking(True)
+        self.verticalScrollBar().valueChanged.connect(self.viewport().update)
+        self.textChanged.connect(self._on_editor_text_changed)
+
+    def _on_editor_text_changed(self):
+        """Validate currently selected image position when document text changes."""
+        if self.selected_image_pos != -1:
+            if not self.get_selected_image_rect():
+                self.selected_image_pos = -1
+                self.viewport().update()
+
+    def find_image_at_pos(self, pt: QPoint):
+        """Find if a viewport position falls inside any rendered image."""
+        doc = self.document()
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and frag.charFormat().isImageFormat():
+                    fmt = frag.charFormat().toImageFormat()
+                    c = self.textCursor()
+                    c.setPosition(frag.position())
+                    cr = self.cursorRect(c)
+                    w = int(fmt.width()) if fmt.width() > 0 else 100
+                    h = int(fmt.height()) if fmt.height() > 0 else cr.height()
+                    img_rect = QRect(cr.x(), cr.y(), w, h)
+                    if img_rect.contains(pt):
+                        return frag.position(), img_rect, fmt
+                it += 1
+            block = block.next()
+        return -1, None, None
+
+    def get_selected_image_rect(self):
+        """Compute current viewport rectangle for the selected image."""
+        if self.selected_image_pos == -1:
+            return None
+        c = self.textCursor()
+        c.setPosition(self.selected_image_pos)
+        c.setPosition(self.selected_image_pos + 1, QTextCursor.MoveMode.KeepAnchor)
+        fmt = c.charFormat()
+        if not fmt.isImageFormat():
+            return None
+        img_fmt = fmt.toImageFormat()
+        c.setPosition(self.selected_image_pos)
+        cr = self.cursorRect(c)
+        w = int(img_fmt.width()) if img_fmt.width() > 0 else 100
+        h = int(img_fmt.height()) if img_fmt.height() > 0 else cr.height()
+        return QRect(cr.x(), cr.y(), w, h)
+
+    def get_handles(self, rect: QRect):
+        """Get 4 corner resize handles (top-left, top-right, bottom-left, bottom-right)."""
+        hs = 9
+        half = hs // 2
+        return {
+            "tl": QRect(rect.left() - half, rect.top() - half, hs, hs),
+            "tr": QRect(rect.right() - half, rect.top() - half, hs, hs),
+            "bl": QRect(rect.left() - half, rect.bottom() - half, hs, hs),
+            "br": QRect(rect.right() - half, rect.bottom() - half, hs, hs),
+        }
+
+    def keyPressEvent(self, event):
+        """Delete selected image when Delete or Backspace is pressed."""
+        if self.selected_image_pos != -1 and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            c = self.textCursor()
+            c.setPosition(self.selected_image_pos)
+            c.setPosition(self.selected_image_pos + 1, QTextCursor.MoveMode.KeepAnchor)
+            c.removeSelectedText()
+            self.selected_image_pos = -1
+            self.viewport().update()
+            if hasattr(self, "parent_app") and self.parent_app:
+                self.parent_app.save_now()
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj == self.viewport():
+            if event.type() == QEvent.Type.Paint:
+                # Render content first, then overlay handles on top
+                super().eventFilter(obj, event)
+                self.paint_handles()
+                return True
+
+            elif event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    pt = event.pos()
+                    # 1. Check if clicked on a corner handle of already selected image
+                    img_rect = self.get_selected_image_rect()
+                    if img_rect:
+                        handles = self.get_handles(img_rect)
+                        for h_id, h_rect in handles.items():
+                            if h_rect.adjusted(-3, -3, 3, 3).contains(pt):
+                                self.active_handle = h_id
+                                self.drag_start_pos = pt
+                                self.drag_start_rect = img_rect
+                                self.current_drag_rect = img_rect
+                                return True
+
+                    # 2. Check if clicked on any image in document
+                    pos, rect, fmt = self.find_image_at_pos(pt)
+                    if pos != -1:
+                        self.selected_image_pos = pos
+                        self.viewport().update()
+                        return True
+                    else:
+                        if self.selected_image_pos != -1:
+                            self.selected_image_pos = -1
+                            self.viewport().update()
+
+            elif event.type() == QEvent.Type.MouseMove:
+                pt = event.pos()
+                if self.active_handle and self.drag_start_rect:
+                    orig = self.drag_start_rect
+                    aspect = orig.width() / max(1, orig.height())
+                    max_w = max(80, self.viewport().width() - 24)
+
+                    if self.active_handle in ("br", "tr"):
+                        dx = pt.x() - self.drag_start_pos.x()
+                        new_w = max(40, min(max_w, orig.width() + dx))
+                    else:
+                        dx = self.drag_start_pos.x() - pt.x()
+                        new_w = max(40, min(max_w, orig.width() + dx))
+
+                    new_h = max(20, int(new_w / aspect))
+
+                    if self.active_handle == "br":
+                        self.current_drag_rect = QRect(orig.left(), orig.top(), new_w, new_h)
+                    elif self.active_handle == "bl":
+                        self.current_drag_rect = QRect(orig.right() - new_w, orig.top(), new_w, new_h)
+                    elif self.active_handle == "tr":
+                        self.current_drag_rect = QRect(orig.left(), orig.bottom() - new_h, new_w, new_h)
+                    elif self.active_handle == "tl":
+                        self.current_drag_rect = QRect(orig.right() - new_w, orig.bottom() - new_h, new_w, new_h)
+
+                    self.viewport().update()
+                    return True
+                else:
+                    # Update hover cursor over handles
+                    img_rect = self.get_selected_image_rect()
+                    if img_rect:
+                        handles = self.get_handles(img_rect)
+                        for h_id, h_rect in handles.items():
+                            if h_rect.adjusted(-3, -3, 3, 3).contains(pt):
+                                if h_id in ("tl", "br"):
+                                    self.viewport().setCursor(Qt.CursorShape.SizeFDiagCursor)
+                                else:
+                                    self.viewport().setCursor(Qt.CursorShape.SizeBDiagCursor)
+                                return True
+                    self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                if self.active_handle and self.current_drag_rect:
+                    new_w = self.current_drag_rect.width()
+                    new_h = self.current_drag_rect.height()
+
+                    c = self.textCursor()
+                    c.setPosition(self.selected_image_pos)
+                    c.setPosition(self.selected_image_pos + 1, QTextCursor.MoveMode.KeepAnchor)
+                    fmt = c.charFormat().toImageFormat()
+                    fmt.setWidth(new_w)
+                    fmt.setHeight(new_h)
+                    c.setCharFormat(fmt)
+
+                    self.active_handle = None
+                    self.drag_start_pos = None
+                    self.drag_start_rect = None
+                    self.current_drag_rect = None
+                    self.viewport().update()
+
+                    if hasattr(self, "parent_app") and self.parent_app:
+                        self.parent_app.save_now()
+                    return True
+
+        return super().eventFilter(obj, event)
+
+    def paint_handles(self):
+        """Draw MS Office-style bounding box and 4 corner pointers around selected image."""
+        rect = self.current_drag_rect or self.get_selected_image_rect()
+        if not rect:
+            return
+
+        p = QPainter(self.viewport())
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw selection border
+        pen = QPen(QColor("#2563EB"), 1.5, Qt.PenStyle.DashLine if self.active_handle else Qt.PenStyle.SolidLine)
+        p.setPen(pen)
+        p.setBrush(QColor(37, 99, 235, 18) if self.active_handle else Qt.BrushStyle.NoBrush)
+        p.drawRect(rect)
+
+        # Draw 4 corner handles (pointers)
+        handles = self.get_handles(rect)
+        handle_pen = QPen(QColor("#2563EB"), 1.5)
+        handle_brush = QBrush(QColor("#FFFFFF"))
+        p.setPen(handle_pen)
+        p.setBrush(handle_brush)
+        for h_rect in handles.values():
+            p.drawRoundedRect(h_rect, 2, 2)
+
+        # Dimension tooltip badge while dragging
+        if self.active_handle and self.current_drag_rect:
+            dim_text = f"{self.current_drag_rect.width()} × {self.current_drag_rect.height()}"
+            p.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+            badge_rect = QRect(rect.center().x() - 36, rect.bottom() + 8, 72, 20)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(24, 24, 27, 220))
+            p.drawRoundedRect(badge_rect, 4, 4)
+            p.setPen(QColor("#FFFFFF"))
+            p.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, dim_text)
+
+        p.end()
+
+    def set_selected_image_size(self, width: int, height: int = 0):
+        """Programmatically set selected image dimensions."""
+        if self.selected_image_pos == -1:
+            return
+        c = self.textCursor()
+        c.setPosition(self.selected_image_pos)
+        c.setPosition(self.selected_image_pos + 1, QTextCursor.MoveMode.KeepAnchor)
+        fmt = c.charFormat()
+        if fmt.isImageFormat():
+            img_fmt = fmt.toImageFormat()
+            orig_w = img_fmt.width() if img_fmt.width() > 0 else 100
+            orig_h = img_fmt.height() if img_fmt.height() > 0 else 100
+            aspect = orig_w / max(1, orig_h)
+            if height <= 0:
+                height = int(width / aspect)
+            img_fmt.setWidth(width)
+            img_fmt.setHeight(height)
+            c.setCharFormat(img_fmt)
+            self.viewport().update()
+            if hasattr(self, "parent_app") and self.parent_app:
+                self.parent_app.save_now()
 
     def canInsertFromMimeData(self, source):
         """Allow inserting images, screenshots, and image file paths directly."""
@@ -1237,6 +1481,18 @@ class PinNoteApp(QMainWindow):
                 self.save_now()
                 self.show_toast("🖼️ Image inserted!", duration=1500)
 
+    def _delete_selected_image(self):
+        """Delete currently selected image."""
+        if self.editor.selected_image_pos != -1:
+            c = self.editor.textCursor()
+            c.setPosition(self.editor.selected_image_pos)
+            c.setPosition(self.editor.selected_image_pos + 1, QTextCursor.MoveMode.KeepAnchor)
+            c.removeSelectedText()
+            self.editor.selected_image_pos = -1
+            self.editor.viewport().update()
+            self.save_now()
+            self.show_toast("🗑️ Image removed", duration=1500)
+
     def _show_context_menu(self, pos):
         """Context menu with screenshot copy, image insertion, and table tools."""
         menu = self.editor.createStandardContextMenu()
@@ -1248,12 +1504,29 @@ class PinNoteApp(QMainWindow):
         img_fmt = fmt.toImageFormat() if fmt.isImageFormat() else None
 
         if img_fmt and img_fmt.name():
+            self.editor.selected_image_pos = cursor.position()
+            self.editor.viewport().update()
             img_src = img_fmt.name()
+
+            # Preset resize options
+            resize_menu = menu.addMenu("📐 Resize Image")
+            fit_act = resize_menu.addAction("Fit Note Width")
+            fit_act.triggered.connect(lambda: self.editor.set_selected_image_size(max(180, self.editor.viewport().width() - 24)))
+            p100_act = resize_menu.addAction("Reset to Standard (340px)")
+            p100_act.triggered.connect(lambda: self.editor.set_selected_image_size(340))
+            p75_act = resize_menu.addAction("75% of Current Size")
+            p75_act.triggered.connect(lambda: self.editor.set_selected_image_size(int((self.editor.get_selected_image_rect().width() if self.editor.get_selected_image_rect() else 300) * 0.75)))
+            p50_act = resize_menu.addAction("50% of Current Size")
+            p50_act.triggered.connect(lambda: self.editor.set_selected_image_size(int((self.editor.get_selected_image_rect().width() if self.editor.get_selected_image_rect() else 300) * 0.5)))
+
             copy_img_action = menu.addAction("📋 Copy This Image")
             copy_img_action.triggered.connect(lambda: self._copy_specific_image(img_src))
 
             save_img_action = menu.addAction("💾 Save Image As...")
             save_img_action.triggered.connect(lambda: self._save_specific_image(img_src))
+
+            del_img_action = menu.addAction("🗑️ Delete Image")
+            del_img_action.triggered.connect(self._delete_selected_image)
             menu.addSeparator()
 
         # Copy note as screenshot

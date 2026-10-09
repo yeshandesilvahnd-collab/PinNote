@@ -30,7 +30,10 @@ A minimalist, modern, floating sticky note widget for **Windows** and **macOS** 
    - **Insert Table**: Right-click anywhere in the editor and choose **📊 Insert Table...** to specify custom rows and columns.
    - Standard shortcuts: `Ctrl + B` (Bold), `Ctrl + I` (Italic), `Ctrl + U` (Underline).
 
-5. **📸 Screenshot & Image Support (New)**:
+5. **📸 Screenshots, Images & Draggable Resizing (New)**:
+   - **Interactive 4-Pointer Resize Handles**: Click any image or screenshot in your note to display MS Office-style corner pointers! Drag any pointer handle to smoothly resize the image with preserved aspect ratio and live pixel dimension feedback.
+   - **Quick Resize Presets**: Right-click any image to quickly pick "Fit Note Width", "Reset to Standard", "75% Size", or "50% Size".
+   - **Delete Image**: Press `Delete` or `Backspace` while an image is selected, or right-click and select "🗑️ Delete Image".
    - **Paste Screenshots (`Ctrl + V`)**: Copy any screenshot from Snipping Tool (`Win + Shift + S`), PrintScreen, web browser, or File Explorer and paste it directly into your note! Automatically rendered with responsive scaling and preserved across reboots.
    - **📸 Copy Note as Screenshot (`Ctrl + Shift + C` / `Cmd + Shift + C`)**: Right-click and choose "Copy Note as Screenshot" to capture your styled note as a clean image card to the clipboard — ready to paste into Discord, WhatsApp, Slack, or emails.
    - **Multi-Format Note Copy**: Clicking the Copy button (`📋`) copies formatted text, HTML, and attaches embedded screenshots to the clipboard.
