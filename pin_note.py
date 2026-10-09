@@ -17,7 +17,8 @@ from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QRect, QEvent, QPropertyAnim
 from PyQt6.QtGui import (
     QFont, QTextCursor, QTextDocumentFragment, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
-    QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup
+    QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup,
+    QCursor
 )
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -423,6 +424,12 @@ class PinNoteApp(QMainWindow):
         self._create_footer()
 
         self.setCentralWidget(self.central_widget)
+
+        # Enable mouse tracking so cursor movements are detected without mouse press
+        self.setMouseTracking(True)
+        self.central_widget.setMouseTracking(True)
+        self.title_bar.setMouseTracking(True)
+        self.footer.setMouseTracking(True)
 
     def _create_title_bar(self):
         """Minimalist compact title bar with line vector icons."""
@@ -1120,6 +1127,20 @@ class PinNoteApp(QMainWindow):
     def hide_toast(self):
         self.toast_banner.hide()
 
+    def is_mouse_over_window(self) -> bool:
+        """Check if global cursor position is currently hovering on top of the window."""
+        try:
+            if not self.isVisible() or self.isMinimized():
+                return False
+            cursor_pos = QCursor.pos()
+            # frameGeometry covers window borders and title bar; geometry covers client area
+            if self.frameGeometry().contains(cursor_pos) or self.geometry().contains(cursor_pos):
+                return True
+            # Also verify via widget-local coordinate mapping
+            return self.rect().contains(self.mapFromGlobal(cursor_pos))
+        except Exception:
+            return False
+
     def eventFilter(self, watched, event):
         """Monitor user interactions to wake window and reset idle countdown."""
         EV_TYPES = (
@@ -1130,6 +1151,9 @@ class PinNoteApp(QMainWindow):
             QEvent.Type.KeyRelease,
             QEvent.Type.Wheel,
             QEvent.Type.FocusIn,
+            QEvent.Type.Enter,
+            QEvent.Type.HoverEnter,
+            QEvent.Type.HoverMove,
         )
         if event.type() in EV_TYPES:
             self.wake_from_idle()
@@ -1158,6 +1182,11 @@ class PinNoteApp(QMainWindow):
         if QApplication.activeModalWidget() is not None:
             self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
             return
+        # Don't dim if mouse cursor is currently on top of the PinNote window
+        if self.is_mouse_over_window():
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
+            return
+
         self.is_dimmed = True
         target_opacity = max(0.2, min(1.0, self.idle_opacity / 100.0))
         self.opacity_anim.stop()
