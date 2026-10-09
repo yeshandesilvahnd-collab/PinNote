@@ -1,5 +1,5 @@
 #define MyAppName "PinNote"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "PinNote"
 #define MyAppExeName "PinNote.exe"
 
@@ -14,7 +14,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=no
 AllowNoIcons=yes
 OutputDir=installer_output
-OutputBaseFilename=PinNote-Setup-v1.0
+OutputBaseFilename=PinNote-Setup-v1.1
 SetupIconFile=assets\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes

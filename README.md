@@ -1,65 +1,95 @@
 # PinNote 📌
 
-A minimalist, modern, floating sticky note widget for Windows featuring continuous reboot persistence, an Always-on-Top toggle, rich text & table formatting, and Dark/Light mode switching.
+A minimalist, modern, floating sticky note widget for **Windows** and **macOS** featuring continuous reboot persistence, Always-on-Top pinning, rich text & table formatting, dark/light themes, and smart auto-transparency when idle.
 
 ---
 
-## ✨ What's New & Key Features
+## ✨ Features
 
 1. **Title Bar Pin Control (📌)**:
-   - Positioned in the window controls cluster: **`[ 📌 Pin ]  [ — Minimize ]  [ □ Maximize ]  [ ✕ Close ]`**.
-   - One click toggles **Always-on-Top**. When pinned, it glows with an active royal blue accent and stays floating above all other windows (browser, games, IDE, etc.).
-   - Shortcut: `Ctrl + P`.
+   - Floating cluster: `[ 📌 Pin ]  [ — Minimize ]  [ □ Maximize ]  [ ✕ Close ]`.
+   - One click toggles **Always-on-Top**. Active royal blue indicator ensures it floats above IDEs, browsers, and full-screen apps.
+   - Shortcut: `Ctrl + P` (or `Cmd + P` on macOS).
 
-2. **Rich Text & Table Formatting**:
-   - **Tables from Gemini / Word / Excel**: Copy any table from Gemini, Microsoft Word, Excel, or web pages and paste it directly (`Ctrl + V`). It automatically renders as a formatted table with crisp borders, header styling, and rows!
-   - **Markdown Table Support**: If you copy a raw markdown table (`| Col 1 | Col 2 |`), PinNote detects and converts it into a visual table.
-   - **Insert Table**: Right-click anywhere in the editor and choose **📊 Insert Table...** to insert custom rows and columns.
-   - **Formatting Shortcuts**:
-     - `Ctrl + B`: Bold
-     - `Ctrl + I`: Italic
-     - `Ctrl + U`: Underline
+2. **👻 Auto-Transparency When Idle (New in v1.1)**:
+   - Automatically and smoothly fades the window to your chosen opacity (e.g. 50%) when inactive, keeping your workspace uncluttered while your notes remain visible.
+   - Instantly snaps back to full 100% opacity the moment you move your mouse, click, scroll, or type.
+   - Configurable timeout down to **5 seconds** (5s, 15s, 30s, 45s, 1m, 2m, 3m, 5m, 10m).
+   - Adjustable idle opacity levels (20% – 80%).
 
-3. **Dark Mode & Light Mode Switch (☀️ / 🌙)**:
-   - Click the theme toggle button in the top bar to instantly switch between:
-     - **🌙 Dark Mode**: Obsidian/Zinc dark palette with high-contrast text and sleek borders.
-     - **☀️ Light Mode**: Clean, crisp modern white/slate theme.
-   - Your theme choice is preserved across reboots.
+3. **⚙️ Compact Settings Menu (New in v1.1)**:
+   - Clean, modern context popup menu styled after Windows 11 / Edge design language.
+   - One-click toggle for **Auto-transparency when idle**.
+   - Submenu to choose **Runout time** (5 seconds to 10 minutes).
+   - Submenu to select **Idle opacity** (20% to 80%).
+   - One-click toggle for **Start on Windows / macOS boot**.
 
-4. **Continuous Reboot Persistence**:
-   - Everything (rich HTML, tables, plain text, window position, pin state, font size, and theme) is auto-saved on every change to `~/.pinnote/data.json`.
-   - **Start on boot**: Toggle the checkbox in the bottom bar to have PinNote silently launch and reopen your note whenever your PC starts up.
+4. **Rich Text & Table Formatting**:
+   - **Tables from Gemini, Word & Excel**: Copy tables from web pages, Gemini, Word, or Excel and paste (`Ctrl + V`) directly. Renders with crisp borders, header styling, and alternating rows.
+   - **Markdown Table Support**: Automatically detects and converts raw markdown tables (`| Col 1 | Col 2 |`).
+   - **Insert Table**: Right-click anywhere in the editor and choose **📊 Insert Table...** to specify custom rows and columns.
+   - Standard shortcuts: `Ctrl + B` (Bold), `Ctrl + I` (Italic), `Ctrl + U` (Underline).
 
-5. **Instant Actions & Undo**:
+5. **Dark Mode & Light Mode (☀️ / 🌙)**:
+   - Seamless one-click switch between Obsidian dark theme and crisp white light theme.
+   - Preserves theme preference across reboots.
+
+6. **Continuous Persistence & Autostart**:
+   - Everything (rich HTML, tables, plain text, window position, pin state, font size, theme, and idle preferences) auto-saves continuously to `~/.pinnote/data.json`.
+   - Optional silent autostart on boot (Windows VBScript launcher / macOS LaunchAgent).
+
+7. **Instant Actions & Undo**:
    - **📋 Copy**: One-click copy with toast feedback.
-   - **🗑️ Clear with Undo**: Clears the note and presents an inline `↺ Undo` banner for 6 seconds to restore your note with one click.
-   - **A- / A+**: Font size scaler.
+   - **🗑️ Clear with Undo**: Clears the note with a 6-second inline `↺ Undo` toast banner to restore your work with one click.
+   - **A- / A+**: Real-time font size scaler with clean footer alignment.
    - **Live Counter**: Live word and character count in the footer.
-   - **Resize**: Resizable from the bottom-right corner grip.
+   - **Resize Grip**: Smooth corner resizing.
 
 ---
 
-## 🚀 How to Launch PinNote
+## 🚀 Installation & Downloads
 
-- **Desktop Shortcut**: Double-click **PinNote** on your Desktop.
-- **Silent Launcher**: Double-click [`PinNote.vbs`](file:///C:/Users/Yesha/.gemini/antigravity/scratch/pin_note/PinNote.vbs).
-- **Batch Launcher**: Double-click [`PinNote.bat`](file:///C:/Users/Yesha/.gemini/antigravity/scratch/pin_note/PinNote.bat).
-- **From Terminal**:
-  ```powershell
-  python C:\Users\Yesha\.gemini\antigravity\scratch\pin_note\pin_note.py
-  ```
+### Windows
+1. Head to the **[Releases](https://github.com/Yesha/PinNote/releases)** tab.
+2. Download **`PinNote-Setup-v1.1.exe`** (or `PinNote-v1.1-Package.zip`).
+3. Run the installer and choose whether to start PinNote automatically on boot.
+
+### macOS
+1. Download **`PinNote-macOS-Package.zip`** from Releases.
+2. Unzip and double-click **`run_mac.command`**, or compile a native `.app` / `.dmg` using `./build_mac.sh`.
 
 ---
 
 ## ⌨️ Shortcuts Reference
 
-| Shortcut | Description |
-| :--- | :--- |
-| `Ctrl + P` | Toggle Always-on-Top |
-| `Ctrl + S` | Manual Save confirmation |
-| `Ctrl + B` | Bold text |
-| `Ctrl + I` | Italic text |
-| `Ctrl + U` | Underline text |
-| `Ctrl + +` / `Ctrl + =` | Increase font size |
-| `Ctrl + -` | Decrease font size |
-| `Right Click` | Context menu (Insert Table, Cut, Copy, Paste, Clear) |
+| Windows | macOS | Description |
+| :--- | :--- | :--- |
+| `Ctrl + P` | `Cmd + P` | Toggle Always-on-Top |
+| `Ctrl + S` | `Cmd + S` | Manual Save confirmation |
+| `Ctrl + B` | `Cmd + B` | Bold text |
+| `Ctrl + I` | `Cmd + I` | Italic text |
+| `Ctrl + U` | `Cmd + U` | Underline text |
+| `Ctrl + +` / `Ctrl + =` | `Cmd + +` | Increase font size |
+| `Ctrl + -` | `Cmd + -` | Decrease font size |
+| `Right Click` | `Right Click` | Context menu (Insert Table, Cut, Copy, Paste, Clear) |
+
+---
+
+## 🛠️ Running From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/<your-username>/PinNote.git
+cd PinNote
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run PinNote
+python pin_note.py
+```
+
+---
+
+## 📜 License
+MIT License. See [LICENSE](LICENSE) for details.

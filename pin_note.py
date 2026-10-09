@@ -10,13 +10,14 @@ import html
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSizeGrip, QFrame, QMenu,
-    QCheckBox, QDialog, QSpinBox, QDialogButtonBox, QFormLayout
+    QCheckBox, QDialog, QSpinBox, QDialogButtonBox, QFormLayout,
+    QComboBox, QSlider
 )
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QRect
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QRect, QEvent, QPropertyAnimation
 from PyQt6.QtGui import (
     QFont, QTextCursor, QTextDocumentFragment, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
-    QIcon, QPixmap, QPainter, QTextCharFormat
+    QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup
 )
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -121,6 +122,13 @@ SVGS = {
         'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
         '<line x1="18" y1="6" x2="6" y2="18"/>'
         '<line x1="6" y1="6" x2="18" y2="18"/>'
+        '</svg>'
+    ),
+    "settings": (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>'
+        '<circle cx="12" cy="12" r="3"/>'
         '</svg>'
     ),
 }
@@ -348,6 +356,24 @@ class PinNoteApp(QMainWindow):
         self.toast_timer.setSingleShot(True)
         self.toast_timer.timeout.connect(self.hide_toast)
 
+        # Inactivity auto-transparency settings
+        self.idle_enabled = bool(self.settings.get("idle_transparency_enabled", True))
+        self.idle_timeout_seconds = int(self.settings.get("idle_timeout_seconds", 60))
+        self.idle_opacity = int(self.settings.get("idle_opacity", 50))
+        self.is_dimmed = False
+
+        # Inactivity countdown timer
+        self.inactivity_timer = QTimer(self)
+        self.inactivity_timer.setSingleShot(True)
+        self.inactivity_timer.timeout.connect(self._on_inactivity_timeout)
+
+        # Opacity transition animation
+        self.opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.opacity_anim.setDuration(280)
+
+        # Global event filter to detect activity
+        QApplication.instance().installEventFilter(self)
+
         # Setup modern frameless window with min/max taskbar buttons
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -366,6 +392,10 @@ class PinNoteApp(QMainWindow):
         self._restore_content()
         self._restore_geometry_safely()
         self._setup_shortcuts()
+
+        # Start idle countdown if enabled
+        if self.idle_enabled:
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
 
     def _build_ui(self):
         """Construct the modern frameless UI layout."""
@@ -547,12 +577,13 @@ class PinNoteApp(QMainWindow):
         self.font_inc_btn.clicked.connect(self.increase_font_size)
         f_layout.addWidget(self.font_inc_btn)
 
-        # Start on boot checkbox
-        self.boot_checkbox = QCheckBox("Start on boot", self.footer)
-        self.boot_checkbox.setFont(get_app_font(8))
-        self.boot_checkbox.setChecked(self.start_on_boot)
-        self.boot_checkbox.toggled.connect(self.toggle_start_on_boot)
-        f_layout.addWidget(self.boot_checkbox)
+        # Settings button (opens settings menu with boot and idle transparency options)
+        self.settings_btn = QPushButton(self.footer)
+        self.settings_btn.setFixedSize(24, 20)
+        self.settings_btn.setToolTip("Settings")
+        self.settings_btn.clicked.connect(self.open_settings)
+        self.settings_btn.setProperty("class", "ghost_btn")
+        f_layout.addWidget(self.settings_btn)
 
         # Native corner resize grip
         self.size_grip = QSizeGrip(self)
@@ -588,6 +619,7 @@ class PinNoteApp(QMainWindow):
         max_icon_name = "restore" if self.isMaximized() else "maximize"
         self.max_btn.setIcon(render_svg_icon(max_icon_name, icon_color, size=12))
         self.close_btn.setIcon(render_svg_icon("close", icon_color, size=12))
+        self.settings_btn.setIcon(render_svg_icon("settings", icon_color, size=13))
 
         self._update_pin_button_style()
 
@@ -713,6 +745,78 @@ class PinNoteApp(QMainWindow):
         QCheckBox::indicator:checked {{
             background-color: {t['accent']};
             border: 1px solid {t['accent']};
+            image: url({check_icon_path});
+        }}
+        /* Settings Dialog, ComboBox and Slider */
+        QDialog {{
+            background-color: {t['bg']};
+            color: {t['text']};
+        }}
+        QComboBox {{
+            background-color: {t['card_bg']};
+            color: {t['text']};
+            border: 1px solid {t['border']};
+            border-radius: 4px;
+            padding: 4px 8px;
+        }}
+        QComboBox::drop-down {{
+            border: none;
+            width: 18px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: {t['card_bg']};
+            color: {t['text']};
+            selection-background-color: {t['accent']};
+            selection-color: #FFFFFF;
+            border: 1px solid {t['border']};
+        }}
+        QSlider::groove:horizontal {{
+            height: 4px;
+            background: {t['scrollbar']};
+            border-radius: 2px;
+        }}
+        QSlider::sub-page:horizontal {{
+            background: {t['accent']};
+            border-radius: 2px;
+        }}
+        QSlider::handle:horizontal {{
+            background: #FFFFFF;
+            border: 1px solid {t['accent']};
+            width: 14px;
+            margin-top: -5px;
+            margin-bottom: -5px;
+            border-radius: 7px;
+        }}
+        /* Modern Popup Settings Menu */
+        QMenu {{
+            background-color: {t['card_bg']};
+            color: {t['text']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+            padding: 4px;
+        }}
+        QMenu::item {{
+            padding: 6px 20px 6px 24px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {t['btn_hover']};
+            color: {t['text']};
+        }}
+        QMenu::item:disabled {{
+            color: {t['text_muted']};
+        }}
+        QMenu::separator {{
+            height: 1px;
+            background-color: {t['border']};
+            margin: 4px 6px;
+        }}
+        QMenu::indicator {{
+            width: 13px;
+            height: 13px;
+            left: 6px;
+        }}
+        QMenu::indicator:checked {{
             image: url({check_icon_path});
         }}
         """
@@ -1016,6 +1120,174 @@ class PinNoteApp(QMainWindow):
     def hide_toast(self):
         self.toast_banner.hide()
 
+    def eventFilter(self, watched, event):
+        """Monitor user interactions to wake window and reset idle countdown."""
+        EV_TYPES = (
+            QEvent.Type.MouseMove,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonRelease,
+            QEvent.Type.KeyPress,
+            QEvent.Type.KeyRelease,
+            QEvent.Type.Wheel,
+            QEvent.Type.FocusIn,
+        )
+        if event.type() in EV_TYPES:
+            self.wake_from_idle()
+        return super().eventFilter(watched, event)
+
+    def enterEvent(self, event):
+        self.wake_from_idle()
+        super().enterEvent(event)
+
+    def wake_from_idle(self):
+        """Restore window to 100% opacity smoothly and restart idle timer."""
+        if self.is_dimmed or self.windowOpacity() < 1.0:
+            self.is_dimmed = False
+            self.opacity_anim.stop()
+            self.opacity_anim.setStartValue(self.windowOpacity())
+            self.opacity_anim.setEndValue(1.0)
+            self.opacity_anim.start()
+        if self.idle_enabled:
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
+
+    def _on_inactivity_timeout(self):
+        """Dim window when user has been idle for the configured runout duration."""
+        if not self.idle_enabled or self.is_dimmed:
+            return
+        # Don't dim if user has an active modal dialog open
+        if QApplication.activeModalWidget() is not None:
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
+            return
+        self.is_dimmed = True
+        target_opacity = max(0.2, min(1.0, self.idle_opacity / 100.0))
+        self.opacity_anim.stop()
+        self.opacity_anim.setStartValue(self.windowOpacity())
+        self.opacity_anim.setEndValue(target_opacity)
+        self.opacity_anim.start()
+
+    def open_settings(self):
+        """Show clean, compact popup Settings menu right above the gear button."""
+        self.wake_from_idle()
+        menu = QMenu(self)
+        menu.setFont(get_app_font(9))
+
+        # 1. Start on boot toggle
+        boot_label = "Start on system boot" if sys.platform == "darwin" else "Start on Windows boot"
+        boot_act = QAction(boot_label, menu)
+        boot_act.setCheckable(True)
+        boot_act.setChecked(self.start_on_boot)
+        boot_act.toggled.connect(self._on_menu_boot_toggled)
+        menu.addAction(boot_act)
+
+        menu.addSeparator()
+
+        # 2. Idle Transparency toggle
+        idle_act = QAction("Auto-transparency when idle", menu)
+        idle_act.setCheckable(True)
+        idle_act.setChecked(self.idle_enabled)
+        idle_act.toggled.connect(self._on_menu_idle_toggled)
+        menu.addAction(idle_act)
+
+        # 3. Runout time submenu
+        time_menu = menu.addMenu("Runout time")
+        time_menu.setEnabled(self.idle_enabled)
+        time_group = QActionGroup(self)
+        time_group.setExclusive(True)
+
+        timeout_options = [
+            ("5 seconds", 5),
+            ("15 seconds", 15),
+            ("30 seconds", 30),
+            ("45 seconds", 45),
+            ("1 minute", 60),
+            ("2 minutes", 120),
+            ("3 minutes", 180),
+            ("5 minutes", 300),
+            ("10 minutes", 600),
+        ]
+        for label, secs in timeout_options:
+            act = QAction(label, time_menu)
+            act.setCheckable(True)
+            act.setChecked(self.idle_timeout_seconds == secs)
+            act.setData(secs)
+            time_group.addAction(act)
+            time_menu.addAction(act)
+            act.triggered.connect(lambda checked, s=secs: self._set_idle_timeout(s))
+
+        # 4. Idle Opacity submenu
+        op_menu = menu.addMenu("Idle opacity")
+        op_menu.setEnabled(self.idle_enabled)
+        op_group = QActionGroup(self)
+        op_group.setExclusive(True)
+
+        opacity_options = [
+            ("20% (Very Faint)", 20),
+            ("30% Opacity", 30),
+            ("40% Opacity", 40),
+            ("50% Opacity (Standard)", 50),
+            ("60% Opacity", 60),
+            ("70% Opacity", 70),
+            ("80% Opacity (Subtle)", 80),
+        ]
+        for label, pct in opacity_options:
+            act = QAction(label, op_menu)
+            act.setCheckable(True)
+            act.setChecked(self.idle_opacity == pct)
+            act.setData(pct)
+            op_group.addAction(act)
+            op_menu.addAction(act)
+            act.triggered.connect(lambda checked, p=pct: self._set_idle_opacity(p))
+
+        menu.addSeparator()
+
+        # 5. Version info
+        ver_act = QAction("PinNote v1.1", menu)
+        ver_act.setEnabled(False)
+        menu.addAction(ver_act)
+
+        # Pop up menu aligned directly above the settings button
+        btn_pos = self.settings_btn.mapToGlobal(QPoint(0, 0))
+        menu_hint = menu.sizeHint()
+        popup_x = max(10, btn_pos.x() - menu_hint.width() + self.settings_btn.width())
+        popup_y = btn_pos.y() - menu_hint.height() - 4
+        menu.exec(QPoint(popup_x, popup_y))
+
+    def _on_menu_boot_toggled(self, checked):
+        self.start_on_boot = checked
+        set_start_on_boot(checked)
+        self.save_now()
+        sys_name = "Mac" if sys.platform == "darwin" else "Windows"
+        msg = f"✓ PinNote will open on {sys_name} boot" if checked else "Removed from startup"
+        self.show_toast(msg, duration=1500)
+
+    def _on_menu_idle_toggled(self, checked):
+        self.idle_enabled = checked
+        self.save_now()
+        if checked:
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
+            self.show_toast("✓ Auto-transparency enabled", duration=1500)
+        else:
+            self.inactivity_timer.stop()
+            self.setWindowOpacity(1.0)
+            self.is_dimmed = False
+            self.show_toast("Auto-transparency disabled", duration=1500)
+
+    def _set_idle_timeout(self, secs):
+        self.idle_timeout_seconds = secs
+        self.save_now()
+        if self.idle_enabled:
+            self.inactivity_timer.start(self.idle_timeout_seconds * 1000)
+        label = f"{secs}s" if secs < 60 else f"{secs // 60}m"
+        self.show_toast(f"✓ Runout time set to {label}", duration=1500)
+
+    def _set_idle_opacity(self, pct):
+        self.idle_opacity = pct
+        self.save_now()
+        self.show_toast(f"✓ Idle opacity set to {pct}%", duration=1500)
+        # Briefly preview the opacity for 800ms so user sees the transparency level
+        self.setWindowOpacity(pct / 100.0)
+        QTimer.singleShot(800, lambda: self.setWindowOpacity(1.0))
+
     def save_now(self, show_feedback: bool = False):
         """Commit note content and settings to disk."""
         html_content = self.editor.toHtml()
@@ -1031,6 +1303,9 @@ class PinNoteApp(QMainWindow):
             "geometry": geom_str,
             "font_size": self.font_size,
             "start_on_boot": self.start_on_boot,
+            "idle_transparency_enabled": self.idle_enabled,
+            "idle_timeout_seconds": self.idle_timeout_seconds,
+            "idle_opacity": self.idle_opacity,
         }
 
         success = save_data(payload)

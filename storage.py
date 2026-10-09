@@ -17,6 +17,9 @@ DEFAULT_SETTINGS = {
     "geometry": "380x480",
     "font_size": 13,
     "start_on_boot": True,
+    "idle_transparency_enabled": True,
+    "idle_timeout_seconds": 60,
+    "idle_opacity": 50,
 }
 
 def get_app_data_dir() -> str:
