@@ -30,16 +30,23 @@ A minimalist, modern, floating sticky note widget for **Windows** and **macOS** 
    - **Insert Table**: Right-click anywhere in the editor and choose **📊 Insert Table...** to specify custom rows and columns.
    - Standard shortcuts: `Ctrl + B` (Bold), `Ctrl + I` (Italic), `Ctrl + U` (Underline).
 
-5. **Dark Mode & Light Mode (☀️ / 🌙)**:
+5. **📸 Screenshot & Image Support (New)**:
+   - **Paste Screenshots (`Ctrl + V`)**: Copy any screenshot from Snipping Tool (`Win + Shift + S`), PrintScreen, web browser, or File Explorer and paste it directly into your note! Automatically rendered with responsive scaling and preserved across reboots.
+   - **📸 Copy Note as Screenshot (`Ctrl + Shift + C` / `Cmd + Shift + C`)**: Right-click and choose "Copy Note as Screenshot" to capture your styled note as a clean image card to the clipboard — ready to paste into Discord, WhatsApp, Slack, or emails.
+   - **Multi-Format Note Copy**: Clicking the Copy button (`📋`) copies formatted text, HTML, and attaches embedded screenshots to the clipboard.
+   - **Save & Copy Specific Images**: Right-click any image in the note to copy it or save it to disk.
+   - **Insert Image**: Right-click and select "🖼️ Insert Image..." to pick an image from your computer.
+
+6. **Dark Mode & Light Mode (☀️ / 🌙)**:
    - Seamless one-click switch between Obsidian dark theme and crisp white light theme.
    - Preserves theme preference across reboots.
 
-6. **Continuous Persistence & Autostart**:
-   - Everything (rich HTML, tables, plain text, window position, pin state, font size, theme, and idle preferences) auto-saves continuously to `~/.pinnote/data.json`.
+7. **Continuous Persistence & Autostart**:
+   - Everything (rich HTML, tables, screenshots, window position, pin state, font size, theme, and idle preferences) auto-saves continuously to `~/.pinnote/data.json`.
    - Optional silent autostart on boot (Windows VBScript launcher / macOS LaunchAgent).
 
-7. **Instant Actions & Undo**:
-   - **📋 Copy**: One-click copy with toast feedback.
+8. **Instant Actions & Undo**:
+   - **📋 Copy**: One-click multi-format copy with toast feedback.
    - **🗑️ Clear with Undo**: Clears the note with a 6-second inline `↺ Undo` toast banner to restore your work with one click.
    - **A- / A+**: Real-time font size scaler with clean footer alignment.
    - **Live Counter**: Live word and character count in the footer.
@@ -50,7 +57,7 @@ A minimalist, modern, floating sticky note widget for **Windows** and **macOS** 
 ## 🚀 Installation & Downloads
 
 ### Windows
-1. Head to the **[Releases](https://github.com/Yesha/PinNote/releases)** tab.
+1. Head to the **[Releases](https://github.com/yeshandesilvahnd-collab/PinNote/releases)** tab.
 2. Download **`PinNote-Setup-v1.1.exe`** (or `PinNote-v1.1-Package.zip`).
 3. Run the installer and choose whether to start PinNote automatically on boot.
 
@@ -71,7 +78,8 @@ A minimalist, modern, floating sticky note widget for **Windows** and **macOS** 
 | `Ctrl + U` | `Cmd + U` | Underline text |
 | `Ctrl + +` / `Ctrl + =` | `Cmd + +` | Increase font size |
 | `Ctrl + -` | `Cmd + -` | Decrease font size |
-| `Right Click` | `Right Click` | Context menu (Insert Table, Cut, Copy, Paste, Clear) |
+| `Ctrl + Shift + C` | `Cmd + Shift + C` | Copy Note as Screenshot / Image |
+| `Right Click` | `Right Click` | Context menu (Insert Table, Screenshot, Insert Image) |
 
 ---
 

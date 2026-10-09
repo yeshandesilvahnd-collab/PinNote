@@ -7,18 +7,22 @@ import sys
 import os
 import re
 import html
+import base64
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSizeGrip, QFrame, QMenu,
     QCheckBox, QDialog, QSpinBox, QDialogButtonBox, QFormLayout,
-    QComboBox, QSlider
+    QComboBox, QSlider, QFileDialog
 )
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QRect, QEvent, QPropertyAnimation
+from PyQt6.QtCore import (
+    Qt, QPoint, QTimer, QSize, QRect, QEvent, QPropertyAnimation,
+    QByteArray, QBuffer, QIODevice, QMimeData, QUrl
+)
 from PyQt6.QtGui import (
     QFont, QTextCursor, QTextDocumentFragment, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
     QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup,
-    QCursor
+    QCursor, QImage
 )
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -237,14 +241,69 @@ def convert_markdown_tables(text: str) -> str:
 
 
 class RichTextEditor(QTextEdit):
-    """Rich text editor with native support for pasted HTML tables, markdown tables, and formatting."""
+    """Rich text editor with native support for pasted screenshots, images, HTML tables, and markdown tables."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptRichText(True)
         self.setTabChangesFocus(False)
 
+    def canInsertFromMimeData(self, source):
+        """Allow inserting images, screenshots, and image file paths directly."""
+        if source.hasImage() or source.hasUrls():
+            return True
+        return super().canInsertFromMimeData(source)
+
+    def insert_image(self, img: QImage):
+        """Insert a QImage as a responsive, base64-encoded PNG inline."""
+        if img.isNull():
+            return
+        # If image is excessively wide (e.g. 4K retina screenshot), scale down smoothly
+        if img.width() > 1400:
+            img = img.scaledToWidth(1400, Qt.TransformationMode.SmoothTransformation)
+
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img.save(buf, "PNG")
+        b64 = base64.b64encode(ba.data()).decode("utf-8")
+        data_uri = f"data:image/png;base64,{b64}"
+
+        # Determine fitting display width for the sticky note
+        viewport_w = self.viewport().width()
+        display_w = max(180, viewport_w - 24) if viewport_w > 50 else 320
+        if img.width() < display_w:
+            display_w = img.width()
+
+        cursor = self.textCursor()
+        cursor.insertHtml(f'<p><img src="{data_uri}" width="{display_w}"/></p><p><br/></p>')
+        self.ensureCursorVisible()
+
     def insertFromMimeData(self, source):
-        """Handle rich paste: formats tables from Gemini/Word/Web or converts Markdown tables."""
+        """Handle rich paste: screenshots, copied pictures, tables from Gemini/Word/Web, or Markdown tables."""
+        # 1. Direct Image in clipboard (e.g. Snipping tool, Win+Shift+S, PrintScreen, copied picture)
+        if source.hasImage():
+            img_data = source.imageData()
+            if isinstance(img_data, QPixmap):
+                img_data = img_data.toImage()
+            if isinstance(img_data, QImage) and not img_data.isNull():
+                self.insert_image(img_data)
+                return
+
+        # 2. Copied image files (e.g. copied from Windows Explorer / macOS Finder)
+        if source.hasUrls():
+            img_urls = []
+            for u in source.urls():
+                lp = u.toLocalFile()
+                if lp and lp.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+                    img_urls.append(lp)
+            if img_urls:
+                for path in img_urls:
+                    img = QImage(path)
+                    if not img.isNull():
+                        self.insert_image(img)
+                return
+
+        # 3. HTML with tables
         if source.hasHtml():
             raw_html = source.html()
             if "<table" in raw_html.lower():
@@ -259,6 +318,7 @@ class RichTextEditor(QTextEdit):
             super().insertFromMimeData(source)
             return
 
+        # 4. Markdown tables
         if source.hasText():
             plain = source.text()
             if "|" in plain and "\n" in plain:
@@ -608,6 +668,7 @@ class PinNoteApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+="), self, self.increase_font_size)
         QShortcut(QKeySequence("Ctrl++"), self, self.increase_font_size)
         QShortcut(QKeySequence("Ctrl+-"), self, self.decrease_font_size)
+        QShortcut(QKeySequence(f"{MOD_KEY}+Shift+C"), self, self.copy_note_as_screenshot)
 
     def _apply_theme(self):
         """Apply active theme styles and render minimalist vector SVG icons."""
@@ -986,14 +1047,46 @@ class PinNoteApp(QMainWindow):
         else:
             self.show_toast("⚠️ Failed to update startup", duration=2500)
 
+    def _extract_first_image_from_html(self, html_str: str):
+        """Extract first embedded base64 image from HTML if present."""
+        match = re.search(r'<img[^>]+src=["\']data:image/[^;]+;base64,([^"\']+)["\']', html_str, re.IGNORECASE)
+        if match:
+            try:
+                b64_data = match.group(1)
+                raw_bytes = base64.b64decode(b64_data)
+                img = QImage()
+                if img.loadFromData(raw_bytes):
+                    return img
+            except Exception:
+                pass
+        return None
+
     def copy_all_text(self):
-        """Copy note to clipboard."""
-        self.editor.selectAll()
-        self.editor.copy()
-        cursor = self.editor.textCursor()
-        cursor.clearSelection()
-        self.editor.setTextCursor(cursor)
+        """Copy note to clipboard (providing plain text, formatted HTML, and image data)."""
+        html_content = self.editor.toHtml()
+        plain_text = self.editor.toPlainText().strip()
+
+        cb = QApplication.clipboard()
+        mime = QMimeData()
+        mime.setText(self.editor.toPlainText())
+        mime.setHtml(html_content)
+
+        # If note contains an embedded screenshot / image, attach it as clipboard image too!
+        extracted_img = self._extract_first_image_from_html(html_content)
+        if extracted_img:
+            mime.setImageData(extracted_img)
+
+        cb.setMimeData(mime)
         self.show_toast("📋 Note copied to clipboard!", duration=1500)
+
+    def copy_note_as_screenshot(self):
+        """Capture the visual note card as a high-resolution screenshot image to clipboard."""
+        QApplication.processEvents()
+        pixmap = self.central_widget.grab()
+        if not pixmap.isNull():
+            cb = QApplication.clipboard()
+            cb.setImage(pixmap.toImage())
+            self.show_toast("📸 Note screenshot copied!", duration=1800)
 
     def clear_all_text(self):
         """Clear note with instant 6-second Undo option."""
@@ -1101,14 +1194,82 @@ class PinNoteApp(QMainWindow):
             table_format.setCellSpacing(0)
             cursor.insertTable(rows, cols, table_format)
 
+    def _copy_specific_image(self, img_src: str):
+        """Copy a specific right-clicked image to clipboard."""
+        if "base64," in img_src:
+            match = re.search(r'base64,([A-Za-z0-9+/=]+)', img_src)
+            if match:
+                raw = base64.b64decode(match.group(1))
+                img = QImage()
+                if img.loadFromData(raw):
+                    QApplication.clipboard().setImage(img)
+                    self.show_toast("📋 Image copied to clipboard!", duration=1500)
+                    return
+        self.show_toast("⚠️ Could not copy image", duration=1500)
+
+    def _save_specific_image(self, img_src: str):
+        """Save a right-clicked image to disk."""
+        if "base64," in img_src:
+            match = re.search(r'base64,([A-Za-z0-9+/=]+)', img_src)
+            if match:
+                raw = base64.b64decode(match.group(1))
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "Save Image", "screenshot.png", "PNG Image (*.png);;JPEG Image (*.jpg);;All Files (*.*)"
+                )
+                if file_path:
+                    try:
+                        with open(file_path, "wb") as f:
+                            f.write(raw)
+                        self.show_toast("💾 Image saved successfully!", duration=1800)
+                    except Exception as e:
+                        self.show_toast(f"⚠️ Error saving image: {e}", duration=2500)
+
+    def insert_image_dialog(self):
+        """Open file dialog to insert an image file from disk."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Image to Insert", "",
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*.*)"
+        )
+        if file_path:
+            img = QImage(file_path)
+            if not img.isNull():
+                self.editor.insert_image(img)
+                self.save_now()
+                self.show_toast("🖼️ Image inserted!", duration=1500)
+
     def _show_context_menu(self, pos):
-        """Context menu with table insertion and formatting tools."""
+        """Context menu with screenshot copy, image insertion, and table tools."""
         menu = self.editor.createStandardContextMenu()
         menu.addSeparator()
 
+        # Check if right-clicked directly on an image
+        cursor = self.editor.cursorForPosition(pos)
+        fmt = cursor.charFormat()
+        img_fmt = fmt.toImageFormat() if fmt.isImageFormat() else None
+
+        if img_fmt and img_fmt.name():
+            img_src = img_fmt.name()
+            copy_img_action = menu.addAction("📋 Copy This Image")
+            copy_img_action.triggered.connect(lambda: self._copy_specific_image(img_src))
+
+            save_img_action = menu.addAction("💾 Save Image As...")
+            save_img_action.triggered.connect(lambda: self._save_specific_image(img_src))
+            menu.addSeparator()
+
+        # Copy note as screenshot
+        snap_action = menu.addAction("📸 Copy Note as Screenshot")
+        snap_action.setShortcut(QKeySequence(f"{MOD_KEY}+Shift+C"))
+        snap_action.triggered.connect(self.copy_note_as_screenshot)
+
+        # Insert Image
+        img_action = menu.addAction("🖼️ Insert Image...")
+        img_action.triggered.connect(self.insert_image_dialog)
+
+        # Insert Table
         table_action = menu.addAction("📊 Insert Table...")
         table_action.triggered.connect(self.insert_table_dialog)
 
+        menu.addSeparator()
         clear_action = menu.addAction("🗑️ Clear Note")
         clear_action.triggered.connect(self.clear_all_text)
 
