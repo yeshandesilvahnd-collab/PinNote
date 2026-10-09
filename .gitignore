@@ -1,0 +1,28 @@
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec.bak
+
+# Build directories and executables (Keep releases under GitHub Releases)
+build/
+dist/
+installer_output/
+*.exe
+*.zip
+*.cer
+*.pfx
+
+# Local environment & IDE
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+
+# Local run scripts and temp files
+PinNote.bat
+PinNote.vbs
+*.tmp
+*.log
+pin_note_v1_reconstructed.py
