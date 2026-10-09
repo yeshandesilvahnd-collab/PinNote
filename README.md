@@ -61,7 +61,7 @@ A minimalist, modern, floating sticky note widget for **Windows** and **macOS** 
 
 ### Windows
 1. Head to the **[Releases](https://github.com/yeshandesilvahnd-collab/PinNote/releases)** tab.
-2. Download **`PinNote-Setup-v1.1.exe`** (or `PinNote-v1.1-Package.zip`).
+2. Download **`PinNote-Setup-v1.1.2.exe`** (or `PinNote-v1.1.2-Package.zip`).
 3. Run the installer and choose whether to start PinNote automatically on boot.
 
 ### macOS

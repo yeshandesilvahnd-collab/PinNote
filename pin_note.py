@@ -1710,7 +1710,7 @@ class PinNoteApp(QMainWindow):
         menu.addSeparator()
 
         # 5. Version info
-        ver_act = QAction("PinNote v1.1", menu)
+        ver_act = QAction("PinNote v1.1.2", menu)
         ver_act.setEnabled(False)
         menu.addAction(ver_act)
 
