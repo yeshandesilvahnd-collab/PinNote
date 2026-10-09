@@ -19,7 +19,7 @@ from PyQt6.QtCore import (
     QByteArray, QBuffer, QIODevice, QMimeData, QUrl
 )
 from PyQt6.QtGui import (
-    QFont, QTextCursor, QTextDocumentFragment, QColor,
+    QFont, QTextCursor, QTextDocumentFragment, QTextDocument, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
     QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup,
     QCursor, QImage, QPen, QBrush
@@ -259,7 +259,13 @@ class RichTextEditor(QTextEdit):
         self.viewport().installEventFilter(self)
         self.viewport().setMouseTracking(True)
         self.verticalScrollBar().valueChanged.connect(self.viewport().update)
+        self.horizontalScrollBar().valueChanged.connect(self.viewport().update)
         self.textChanged.connect(self._on_editor_text_changed)
+
+    def paintEvent(self, event):
+        """Paint document content normally, then overlay selection handles on top if an image is selected."""
+        super().paintEvent(event)
+        self.paint_handles()
 
     def _on_editor_text_changed(self):
         """Validate currently selected image position when document text changes."""
@@ -281,8 +287,11 @@ class RichTextEditor(QTextEdit):
                     c = self.textCursor()
                     c.setPosition(frag.position())
                     cr = self.cursorRect(c)
-                    w = int(fmt.width()) if fmt.width() > 0 else 100
-                    h = int(fmt.height()) if fmt.height() > 0 else cr.height()
+                    res = doc.resource(QTextDocument.ResourceType.ImageResource, QUrl(fmt.name()))
+                    res_w = res.width() if res and not res.isNull() else 100
+                    res_h = res.height() if res and not res.isNull() else cr.height()
+                    w = int(fmt.width()) if fmt.width() > 0 else res_w
+                    h = int(fmt.height()) if fmt.height() > 0 else (int(cr.height()) if cr.height() > 0 else res_h)
                     img_rect = QRect(cr.x(), cr.y(), w, h)
                     if img_rect.contains(pt):
                         return frag.position(), img_rect, fmt
@@ -303,8 +312,11 @@ class RichTextEditor(QTextEdit):
         img_fmt = fmt.toImageFormat()
         c.setPosition(self.selected_image_pos)
         cr = self.cursorRect(c)
-        w = int(img_fmt.width()) if img_fmt.width() > 0 else 100
-        h = int(img_fmt.height()) if img_fmt.height() > 0 else cr.height()
+        res = self.document().resource(QTextDocument.ResourceType.ImageResource, QUrl(img_fmt.name()))
+        res_w = res.width() if res and not res.isNull() else 100
+        res_h = res.height() if res and not res.isNull() else cr.height()
+        w = int(img_fmt.width()) if img_fmt.width() > 0 else res_w
+        h = int(img_fmt.height()) if img_fmt.height() > 0 else (int(cr.height()) if cr.height() > 0 else res_h)
         return QRect(cr.x(), cr.y(), w, h)
 
     def get_handles(self, rect: QRect):
@@ -334,13 +346,7 @@ class RichTextEditor(QTextEdit):
 
     def eventFilter(self, obj, event):
         if obj == self.viewport():
-            if event.type() == QEvent.Type.Paint:
-                # Render content first, then overlay handles on top
-                super().eventFilter(obj, event)
-                self.paint_handles()
-                return True
-
-            elif event.type() == QEvent.Type.MouseButtonPress:
+            if event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
                     pt = event.pos()
                     # 1. Check if clicked on a corner handle of already selected image
@@ -515,11 +521,11 @@ class RichTextEditor(QTextEdit):
         # Determine fitting display width for the sticky note
         viewport_w = self.viewport().width()
         display_w = max(180, viewport_w - 24) if viewport_w > 50 else 320
-        if img.width() < display_w:
-            display_w = img.width()
+        aspect = img.width() / max(1, img.height())
+        display_h = max(20, int(display_w / aspect))
 
         cursor = self.textCursor()
-        cursor.insertHtml(f'<p><img src="{data_uri}" width="{display_w}"/></p><p><br/></p>')
+        cursor.insertHtml(f'<p><img src="{data_uri}" width="{display_w}" height="{display_h}"/></p><p><br/></p>')
         self.ensureCursorVisible()
 
     def insertFromMimeData(self, source):
