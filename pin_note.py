@@ -915,13 +915,13 @@ class PinNoteApp(QMainWindow):
         self.app_icon.setFixedSize(16, 16)
         icon_png = get_asset_path("icon.png")
         if os.path.exists(icon_png):
-            self.app_icon.setPixmap(
-                QPixmap(icon_png).scaled(
-                    16, 16,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation
-                )
+            pm = QPixmap(icon_png).scaled(
+                32, 32,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
+            pm.setDevicePixelRatio(2.0)
+            self.app_icon.setPixmap(pm)
         self.app_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self.title_label = QLabel("PinNote", self.title_bar)
