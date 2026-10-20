@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QSizeGrip, QFrame, QMenu,
     QCheckBox, QDialog, QSpinBox, QDialogButtonBox, QFormLayout,
-    QComboBox, QSlider, QFileDialog
+    QComboBox, QSlider, QFileDialog, QSystemTrayIcon
 )
 from PyQt6.QtCore import (
     Qt, QPoint, QTimer, QSize, QRect, QEvent, QPropertyAnimation,
@@ -135,6 +135,14 @@ SVGS = {
         'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
         '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>'
         '<circle cx="12" cy="12" r="3"/>'
+        '</svg>'
+    ),
+    "dock_side": (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" '
+        'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        '<rect width="18" height="18" x="3" y="3" rx="2"/>'
+        '<line x1="15" y1="3" x2="15" y2="21"/>'
+        '<path d="m10 9 3 3-3 3"/>'
         '</svg>'
     ),
 }
@@ -640,6 +648,113 @@ class DraggableTitleBar(QFrame):
             event.accept()
 
 
+class SideDockHandle(QWidget):
+    """Floating draggable screen-edge tab for expanding PinNote when docked to side."""
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(26, 72)
+        self.drag_start_pos = None
+        self.drag_start_geo = None
+        self.has_dragged = False
+        self.is_hovered = False
+        self.dock_side = "right"
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Click to Expand PinNote (Drag to reposition)")
+
+    def enterEvent(self, event):
+        self.is_hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.is_hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        t = THEMES[self.parent_app.theme]
+        bg_color = QColor(t["bg_title"])
+        border_color = QColor(t["accent"]) if self.is_hovered else QColor(t["border"])
+        arrow_color = QColor(t["accent"]) if self.is_hovered else QColor(t["text"])
+
+        w = self.width()
+        h = self.height()
+
+        painter.setPen(QPen(border_color, 1.2))
+        painter.setBrush(QBrush(bg_color))
+
+        if self.dock_side == "right":
+            # Tab on right edge: rounded corners on the left
+            painter.drawRoundedRect(0, 0, w + 12, h, 8, 8)
+            # Left chevron arrow '<'
+            painter.setPen(QPen(arrow_color, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            mid_y = h // 2
+            mid_x = w // 2 - 1
+            painter.drawLine(mid_x + 3, mid_y - 7, mid_x - 3, mid_y)
+            painter.drawLine(mid_x - 3, mid_y, mid_x + 3, mid_y + 7)
+        else:
+            # Tab on left edge: rounded corners on the right
+            painter.drawRoundedRect(-12, 0, w + 12, h, 8, 8)
+            # Right chevron arrow '>'
+            painter.setPen(QPen(arrow_color, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            mid_y = h // 2
+            mid_x = w // 2 + 1
+            painter.drawLine(mid_x - 3, mid_y - 7, mid_x + 3, mid_y)
+            painter.drawLine(mid_x + 3, mid_y, mid_x - 3, mid_y + 7)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.globalPosition().toPoint()
+            self.drag_start_geo = self.geometry()
+            self.has_dragged = False
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self.drag_start_pos and (event.buttons() & Qt.MouseButton.LeftButton):
+            delta = event.globalPosition().toPoint() - self.drag_start_pos
+            if delta.manhattanLength() > 4:
+                self.has_dragged = True
+                self.setCursor(Qt.CursorShape.SizeAllCursor)
+                screen = QApplication.primaryScreen().availableGeometry()
+
+                new_y = self.drag_start_geo.y() + delta.y()
+                new_y = max(screen.top() + 8, min(screen.bottom() - self.height() - 8, new_y))
+
+                mouse_x = event.globalPosition().toPoint().x()
+                if mouse_x < screen.center().x():
+                    self.dock_side = "left"
+                    new_x = screen.left()
+                else:
+                    self.dock_side = "right"
+                    new_x = screen.right() - self.width() + 1
+
+                self.move(new_x, new_y)
+                self.update()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            if not self.has_dragged:
+                self.parent_app.expand_from_side()
+            else:
+                self.parent_app.settings["dock_y"] = self.y()
+                self.parent_app.settings["dock_side"] = self.dock_side
+                self.parent_app.save_now()
+            self.drag_start_pos = None
+            event.accept()
+
+
 class PinNoteApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -686,13 +801,20 @@ class PinNoteApp(QMainWindow):
         # Global event filter to detect activity
         QApplication.instance().installEventFilter(self)
 
-        # Setup modern frameless window with min/max taskbar buttons
+        # Setup modern frameless utility window (Tool window avoids taskbar clutter)
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowSystemMenuHint |
-            Qt.WindowType.WindowMinMaxButtonsHint
+            Qt.WindowType.WindowMinMaxButtonsHint |
+            Qt.WindowType.Tool
         )
         self.setMinimumSize(300, 240)
+
+        # Utility state: System Tray & Side Dock
+        self._force_quit = False
+        self.is_side_docked = bool(self.settings.get("is_docked", False))
+        self.dock_handle = SideDockHandle(self)
+        self._create_system_tray()
 
         # Restore Always-on-Top initially
         if self.is_pinned:
@@ -771,15 +893,9 @@ class PinNoteApp(QMainWindow):
         self.title_label.setFont(get_app_font(10, bold=True))
         self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        self.status_label = QLabel("● Saved", self.title_bar)
-        self.status_label.setFont(get_app_font(8))
-        self.status_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-
         tb_layout.addWidget(self.app_icon)
         tb_layout.addSpacing(4)
         tb_layout.addWidget(self.title_label)
-        tb_layout.addSpacing(6)
-        tb_layout.addWidget(self.status_label)
         tb_layout.addStretch()
 
         # Center/Right: Action Buttons (Minimal borderless ghost buttons)
@@ -806,7 +922,14 @@ class PinNoteApp(QMainWindow):
         tb_layout.addWidget(self.theme_btn)
         tb_layout.addSpacing(4)
 
-        # Window Controls Cluster: [ 📌 Pin ] [ — Min ] [ □ Max ] [ ✕ Close ]
+        # Window Controls Cluster: [ ⇥ Side ] [ 📌 Pin ] [ — Min ] [ □ Max ] [ ✕ Close ]
+        self.side_btn = QPushButton(self.title_bar)
+        self.side_btn.setFixedSize(26, 26)
+        self.side_btn.setToolTip(f"Dock to Side ({MOD_KEY}+D)")
+        self.side_btn.clicked.connect(self.dock_to_side)
+        self.side_btn.setProperty("class", "ghost_btn")
+        tb_layout.addWidget(self.side_btn)
+
         self.pin_btn = QPushButton(self.title_bar)
         self.pin_btn.setFixedSize(26, 26)
         self.pin_btn.clicked.connect(self.toggle_always_on_top)
@@ -814,8 +937,8 @@ class PinNoteApp(QMainWindow):
 
         self.min_btn = QPushButton(self.title_bar)
         self.min_btn.setFixedSize(26, 26)
-        self.min_btn.setToolTip("Minimize")
-        self.min_btn.clicked.connect(self.showMinimized)
+        self.min_btn.setToolTip("Minimize to Tray")
+        self.min_btn.clicked.connect(self.hide)
         self.min_btn.setProperty("class", "ghost_btn")
 
         self.max_btn = QPushButton(self.title_bar)
@@ -933,6 +1056,7 @@ class PinNoteApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+="), self, self.increase_font_size)
         QShortcut(QKeySequence("Ctrl++"), self, self.increase_font_size)
         QShortcut(QKeySequence("Ctrl+-"), self, self.decrease_font_size)
+        QShortcut(QKeySequence("Ctrl+D"), self, self.toggle_side_dock)
         QShortcut(QKeySequence(f"{MOD_KEY}+Shift+C"), self, self.copy_note_as_screenshot)
 
     def _apply_theme(self):
@@ -953,8 +1077,13 @@ class PinNoteApp(QMainWindow):
         self.max_btn.setIcon(render_svg_icon(max_icon_name, icon_color, size=12))
         self.close_btn.setIcon(render_svg_icon("close", icon_color, size=12))
         self.settings_btn.setIcon(render_svg_icon("settings", icon_color, size=13))
+        self.side_btn.setIcon(render_svg_icon("dock_side", icon_color, size=13))
 
         self._update_pin_button_style()
+        if hasattr(self, "tray_pin_act"):
+            self.tray_pin_act.setChecked(self.is_pinned)
+        if hasattr(self, "dock_handle"):
+            self.dock_handle.update()
 
         check_icon_path = get_asset_path("checkmark.svg").replace("\\", "/")
 
@@ -1260,9 +1389,10 @@ class PinNoteApp(QMainWindow):
 
     def _on_content_changed(self):
         """Debounced auto-save on typing."""
-        t = THEMES[self.theme]
-        self.status_label.setText("● Saving...")
-        self.status_label.setStyleSheet(f"color: {t['text_muted']};")
+        if hasattr(self, "status_label"):
+            t = THEMES[self.theme]
+            self.status_label.setText("● Saving...")
+            self.status_label.setStyleSheet(f"color: {t['text_muted']};")
         self._update_counts()
         self.save_timer.start()
 
@@ -1283,6 +1413,8 @@ class PinNoteApp(QMainWindow):
         self.raise_()
         self.activateWindow()
         self._update_pin_button_style()
+        if hasattr(self, "tray_pin_act"):
+            self.tray_pin_act.setChecked(self.is_pinned)
         self.show_toast(
             "📌 Window set to Always-on-Top" if self.is_pinned else "Window unpinned (normal mode)",
             duration=1800
@@ -1825,7 +1957,7 @@ class PinNoteApp(QMainWindow):
         menu.addSeparator()
 
         # 5. Version info
-        ver_act = QAction("PinNote v1.1.2", menu)
+        ver_act = QAction("PinNote v1.2.0", menu)
         ver_act.setEnabled(False)
         menu.addAction(ver_act)
 
@@ -1879,6 +2011,11 @@ class PinNoteApp(QMainWindow):
         geo = self.geometry()
         geom_str = f"{geo.width()}x{geo.height()}+{geo.x()}+{geo.y()}"
 
+        dock_y_val = self.settings.get("dock_y")
+        if hasattr(self, "dock_handle") and self.dock_handle.y() > 0:
+            dock_y_val = self.dock_handle.y()
+        dock_side_val = getattr(self.dock_handle, "dock_side", "right") if hasattr(self, "dock_handle") else "right"
+
         payload = {
             "html": html_content,
             "text": plain_content,
@@ -1890,21 +2027,161 @@ class PinNoteApp(QMainWindow):
             "idle_transparency_enabled": self.idle_enabled,
             "idle_timeout_seconds": self.idle_timeout_seconds,
             "idle_opacity": self.idle_opacity,
+            "is_docked": getattr(self, "is_side_docked", False),
+            "dock_y": dock_y_val,
+            "dock_side": dock_side_val,
         }
 
         success = save_data(payload)
         t = THEMES[self.theme]
         if success:
-            self.status_label.setText("● Saved")
-            self.status_label.setStyleSheet(f"color: {t['success']};")
+            if hasattr(self, "status_label"):
+                self.status_label.setText("● Saved")
+                self.status_label.setStyleSheet(f"color: {t['success']};")
             if show_feedback:
                 self.show_toast("✓ Saved to disk", duration=1200)
         else:
-            self.status_label.setText("⚠️ Error")
-            self.status_label.setStyleSheet(f"color: {t['danger']};")
+            if hasattr(self, "status_label"):
+                self.status_label.setText("⚠️ Error")
+                self.status_label.setStyleSheet(f"color: {t['danger']};")
+
+    def dock_to_side(self):
+        """Minimize/dock window flush into screen edge handle."""
+        self.is_side_docked = True
+        self.save_now()
+        self.hide()
+
+        screen = QApplication.primaryScreen().availableGeometry()
+        saved_y = self.settings.get("dock_y")
+        side = self.settings.get("dock_side", "right")
+
+        handle_h = self.dock_handle.height()
+        handle_w = self.dock_handle.width()
+
+        if saved_y is not None:
+            y = max(screen.top() + 8, min(screen.bottom() - handle_h - 8, int(saved_y)))
+        else:
+            y = max(screen.top() + 8, min(screen.bottom() - handle_h - 8, self.y() + 40))
+
+        self.dock_handle.dock_side = side
+        x = screen.right() - handle_w + 1 if side == "right" else screen.left()
+        self.dock_handle.move(x, y)
+        self.dock_handle.show()
+        self.dock_handle.raise_()
+
+    def expand_from_side(self):
+        """Restore window from docked side handle."""
+        self.is_side_docked = False
+        self.dock_handle.hide()
+
+        screen = QApplication.primaryScreen().availableGeometry()
+        win_w = self.width()
+        win_h = self.height()
+        side = self.dock_handle.dock_side
+
+        handle_y = self.dock_handle.y()
+        target_y = max(screen.top() + 10, min(screen.bottom() - win_h - 10, handle_y - win_h // 4))
+
+        if side == "right":
+            target_x = screen.right() - win_w - 12
+        else:
+            target_x = screen.left() + 12
+
+        self.move(target_x, target_y)
+        self.activate_app_window()
+        self.save_now()
+
+    def toggle_side_dock(self):
+        """Toggle side dock state."""
+        if getattr(self, "is_side_docked", False):
+            self.expand_from_side()
+        else:
+            self.dock_to_side()
+
+    def _create_system_tray(self):
+        """Setup system tray icon and utility menu."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        icon_path = get_asset_path("icon.ico")
+        if not os.path.exists(icon_path):
+            icon_path = get_asset_path("icon.png")
+
+        self.tray_icon = QSystemTrayIcon(self)
+        if os.path.exists(icon_path):
+            self.tray_icon.setIcon(QIcon(icon_path))
+        self.tray_icon.setToolTip("PinNote - Minimalist Sticky Note")
+
+        tray_menu = QMenu()
+        tray_menu.setFont(get_app_font(9))
+
+        self.tray_show_act = QAction("Open PinNote", tray_menu)
+        font = self.tray_show_act.font()
+        font.setBold(True)
+        self.tray_show_act.setFont(font)
+        self.tray_show_act.triggered.connect(self.activate_app_window)
+        tray_menu.addAction(self.tray_show_act)
+
+        self.tray_dock_act = QAction("Dock to Side", tray_menu)
+        self.tray_dock_act.triggered.connect(self.dock_to_side)
+        tray_menu.addAction(self.tray_dock_act)
+
+        tray_menu.addSeparator()
+
+        self.tray_pin_act = QAction("Always on Top", tray_menu)
+        self.tray_pin_act.setCheckable(True)
+        self.tray_pin_act.setChecked(self.is_pinned)
+        self.tray_pin_act.triggered.connect(self.toggle_always_on_top)
+        tray_menu.addAction(self.tray_pin_act)
+
+        self.tray_clear_act = QAction("Clear Note", tray_menu)
+        self.tray_clear_act.triggered.connect(self.clear_all_text)
+        tray_menu.addAction(self.tray_clear_act)
+
+        tray_menu.addSeparator()
+
+        self.tray_settings_act = QAction("Settings...", tray_menu)
+        self.tray_settings_act.triggered.connect(self.open_settings)
+        tray_menu.addAction(self.tray_settings_act)
+
+        tray_menu.addSeparator()
+
+        self.tray_exit_act = QAction("Exit PinNote", tray_menu)
+        self.tray_exit_act.triggered.connect(self.quit_application)
+        tray_menu.addAction(self.tray_exit_act)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            if self.isVisible() and not self.isMinimized() and not getattr(self, "is_side_docked", False):
+                if self.isActiveWindow():
+                    self.hide()
+                else:
+                    self.activate_app_window()
+            else:
+                if getattr(self, "is_side_docked", False):
+                    self.expand_from_side()
+                else:
+                    self.activate_app_window()
+
+    def quit_application(self):
+        """Cleanly save data and quit application."""
+        self._force_quit = True
+        self.save_now()
+        if hasattr(self, "tray_icon"):
+            self.tray_icon.hide()
+        if hasattr(self, "dock_handle"):
+            self.dock_handle.hide()
+        QApplication.instance().quit()
 
     def activate_app_window(self):
-        """Restore window if minimized, un-dim, bring to top, and focus."""
+        """Restore window if minimized or docked, un-dim, bring to top, and focus."""
+        if getattr(self, "is_side_docked", False):
+            self.expand_from_side()
+            return
         if self.isMinimized():
             self.showNormal()
         self.show()
@@ -1922,7 +2199,12 @@ class PinNoteApp(QMainWindow):
 
     def closeEvent(self, event):
         self.save_now()
-        event.accept()
+        if getattr(self, "_force_quit", False):
+            event.accept()
+        else:
+            # System Tray Utility: close button hides to system tray
+            event.ignore()
+            self.hide()
 
 
 def main():
@@ -1935,6 +2217,7 @@ def main():
             pass
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
     # Single-instance application guard:
     # Ensure only ONE PinNote instance runs per user session.
@@ -1992,7 +2275,10 @@ def main():
 
     server.newConnection.connect(on_secondary_instance_launched)
 
-    window.activate_app_window()
+    if window.is_side_docked:
+        window.dock_to_side()
+    else:
+        window.activate_app_window()
     sys.exit(app.exec())
 
 
