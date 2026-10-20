@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
     QCursor, QImage, QPen, QBrush
 )
 from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 from storage import (
     load_data,
@@ -1788,6 +1789,23 @@ class PinNoteApp(QMainWindow):
             self.status_label.setText("⚠️ Error")
             self.status_label.setStyleSheet(f"color: {t['danger']};")
 
+    def activate_app_window(self):
+        """Restore window if minimized, un-dim, bring to top, and focus."""
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.wake_from_idle()
+        self.raise_()
+        self.activateWindow()
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+
     def closeEvent(self, event):
         self.save_now()
         event.accept()
@@ -1803,6 +1821,35 @@ def main():
             pass
 
     app = QApplication(sys.argv)
+
+    # Single-instance application guard:
+    # Ensure only ONE PinNote instance runs per user session.
+    user_id = os.environ.get("USERNAME") or os.environ.get("USER") or "default"
+    socket_name = f"pinnote_single_instance_{user_id}"
+
+    test_socket = QLocalSocket()
+    test_socket.connectToServer(socket_name)
+    if test_socket.waitForConnected(400):
+        # A primary instance is already active!
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                # Allow target process to bring itself into foreground
+                ctypes.windll.user32.AllowSetForegroundWindow(-1)
+            except Exception:
+                pass
+        test_socket.write(b"ACTIVATE\n")
+        test_socket.waitForBytesWritten(1000)
+        test_socket.disconnectFromServer()
+        sys.exit(0)
+
+    # First instance: initialize local socket server
+    server = QLocalServer()
+    server.removeServer(socket_name)
+    server.listen(socket_name)
+    app._single_instance_server = server
+    app.aboutToQuit.connect(server.close)
+
     if sys.platform == "darwin":
         app.setApplicationName("PinNote")
         app.setDesktopFileName("PinNote")
@@ -1820,9 +1867,18 @@ def main():
     window = PinNoteApp()
     if os.path.exists(icon_path):
         window.setWindowIcon(QIcon(icon_path))
-    window.show()
-    window.raise_()
-    window.activateWindow()
+
+    def on_secondary_instance_launched():
+        client_socket = server.nextPendingConnection()
+        if client_socket:
+            client_socket.waitForReadyRead(300)
+            _ = client_socket.readAll()
+            window.activate_app_window()
+            client_socket.disconnectFromServer()
+
+    server.newConnection.connect(on_secondary_instance_launched)
+
+    window.activate_app_window()
     sys.exit(app.exec())
 
 

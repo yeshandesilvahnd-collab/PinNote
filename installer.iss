@@ -39,5 +39,12 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\assets\icon.ico"
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startupicon; IconFilename: "{app}\assets\icon.ico"
 
+[InstallDelete]
+Type: files; Name: "{userstartup}\PinNote.vbs"
+
+[UninstallDelete]
+Type: files; Name: "{userstartup}\PinNote.vbs"
+Type: files; Name: "{userstartup}\{#MyAppName}.lnk"
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
