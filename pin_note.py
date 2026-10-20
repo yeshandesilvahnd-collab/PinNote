@@ -876,6 +876,16 @@ class PinNoteApp(QMainWindow):
         f_layout.addWidget(self.counter_label)
         f_layout.addStretch()
 
+        # Bold button
+        self.bold_btn = QPushButton("B", self.footer)
+        self.bold_btn.setFixedSize(24, 20)
+        self.bold_btn.setFont(get_app_font(9, bold=True))
+        self.bold_btn.setCheckable(True)
+        self.bold_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.bold_btn.setToolTip(f"Bold Selected Text ({MOD_KEY}+B)")
+        self.bold_btn.clicked.connect(self.toggle_bold)
+        f_layout.addWidget(self.bold_btn)
+
         # Font size adjusters
         self.font_dec_btn = QPushButton("A-", self.footer)
         self.font_dec_btn.setFixedSize(24, 20)
@@ -1037,6 +1047,11 @@ class PinNoteApp(QMainWindow):
         }}
         QFrame#footer QPushButton:hover {{
             color: {t['text']};
+        }}
+        QFrame#footer QPushButton:checked {{
+            background-color: {t['accent']};
+            color: #ffffff;
+            font-weight: bold;
         }}
         QLabel#font_size_label {{
             color: {t['text_muted']};
@@ -1501,26 +1516,36 @@ class PinNoteApp(QMainWindow):
                 self.save_now()
 
     def _update_font_display(self):
-        """Update font size label in footer to reflect current cursor or selection point size."""
-        if not hasattr(self, "font_size_label"):
-            return
-        cursor = self.editor.textCursor()
-        size = cursor.charFormat().fontPointSize()
-        if size <= 0:
-            size = self.editor.currentCharFormat().fontPointSize()
-        if size <= 0:
-            size = float(self.font_size)
-        self.font_size_label.setText(f"{int(round(size))}pt")
+        """Update font size label and bold button state to reflect current cursor or selection."""
+        if hasattr(self, "font_size_label"):
+            cursor = self.editor.textCursor()
+            size = cursor.charFormat().fontPointSize()
+            if size <= 0:
+                size = self.editor.currentCharFormat().fontPointSize()
+            if size <= 0:
+                size = float(self.font_size)
+            self.font_size_label.setText(f"{int(round(size))}pt")
+
+        if hasattr(self, "bold_btn"):
+            is_bold = (self.editor.fontWeight() == QFont.Weight.Bold)
+            self.bold_btn.setChecked(is_bold)
 
     def toggle_bold(self):
         w = QFont.Weight.Bold if self.editor.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal
         self.editor.setFontWeight(w)
+        self.editor.setFocus()
+        self._update_font_display()
+        self.save_now()
 
     def toggle_italic(self):
         self.editor.setFontItalic(not self.editor.fontItalic())
+        self.editor.setFocus()
+        self.save_now()
 
     def toggle_underline(self):
         self.editor.setFontUnderline(not self.editor.fontUnderline())
+        self.editor.setFocus()
+        self.save_now()
 
     def insert_table_dialog(self):
         """Insert a formatted table via dialog."""
