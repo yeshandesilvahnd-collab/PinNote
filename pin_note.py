@@ -957,18 +957,19 @@ class PinNoteApp(QMainWindow):
         tb_layout.addWidget(self.theme_btn)
         tb_layout.addSpacing(4)
 
-        # Window Controls Cluster: [ ⇥ Side ] [ 📌 Pin ] [ — Min ] [ □ Max ] [ ✕ Close ]
+        # Window Controls Cluster: [ 📌 Pin ] [ ⇥ Side ] [ — Min ] [ □ Max ] [ ✕ Close ]
+        self.pin_btn = QPushButton(self.title_bar)
+        self.pin_btn.setFixedSize(26, 26)
+        self.pin_btn.clicked.connect(self.toggle_always_on_top)
+        self.pin_btn.setProperty("class", "ghost_btn")
+        tb_layout.addWidget(self.pin_btn)
+
         self.side_btn = QPushButton(self.title_bar)
         self.side_btn.setFixedSize(26, 26)
         self.side_btn.setToolTip(f"Dock to Side ({MOD_KEY}+D)")
         self.side_btn.clicked.connect(self.dock_to_side)
         self.side_btn.setProperty("class", "ghost_btn")
         tb_layout.addWidget(self.side_btn)
-
-        self.pin_btn = QPushButton(self.title_bar)
-        self.pin_btn.setFixedSize(26, 26)
-        self.pin_btn.clicked.connect(self.toggle_always_on_top)
-        self.pin_btn.setProperty("class", "ghost_btn")
 
         self.min_btn = QPushButton(self.title_bar)
         self.min_btn.setFixedSize(26, 26)
@@ -988,7 +989,6 @@ class PinNoteApp(QMainWindow):
         self.close_btn.clicked.connect(self.close)
         self.close_btn.setProperty("class", "close_btn")
 
-        tb_layout.addWidget(self.pin_btn)
         tb_layout.addWidget(self.min_btn)
         tb_layout.addWidget(self.max_btn)
         tb_layout.addWidget(self.close_btn)
