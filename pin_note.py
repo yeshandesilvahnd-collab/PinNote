@@ -2050,6 +2050,7 @@ class PinNoteApp(QMainWindow):
         if hasattr(self, "dock_handle") and self.dock_handle.y() > 0:
             dock_y_val = self.dock_handle.y()
         dock_side_val = getattr(self.dock_handle, "dock_side", "right") if hasattr(self, "dock_handle") else "right"
+        pre_dock_str = getattr(self, "pre_dock_geo_str", None) or self.settings.get("pre_dock_geometry", geom_str)
 
         payload = {
             "html": html_content,
@@ -2057,6 +2058,7 @@ class PinNoteApp(QMainWindow):
             "theme": self.theme,
             "always_on_top": self.is_pinned,
             "geometry": geom_str,
+            "pre_dock_geometry": pre_dock_str,
             "font_size": self.font_size,
             "start_on_boot": self.start_on_boot,
             "idle_transparency_enabled": self.idle_enabled,
@@ -2081,7 +2083,11 @@ class PinNoteApp(QMainWindow):
                 self.status_label.setStyleSheet(f"color: {t['danger']};")
 
     def dock_to_side(self):
-        """Minimize/dock window flush into screen edge handle."""
+        """Minimize/dock window flush into screen edge handle, remembering window position."""
+        self.pre_dock_geo = self.geometry()
+        self.pre_dock_geo_str = f"{self.pre_dock_geo.width()}x{self.pre_dock_geo.height()}+{self.pre_dock_geo.x()}+{self.pre_dock_geo.y()}"
+        self.settings["pre_dock_geometry"] = self.pre_dock_geo_str
+
         self.is_side_docked = True
         screen_obj = self.screen() or QApplication.primaryScreen()
         screen = screen_obj.availableGeometry()
@@ -2110,25 +2116,42 @@ class PinNoteApp(QMainWindow):
             self.tray_dock_act.setText("Expand from Side")
 
     def expand_from_side(self):
-        """Restore window from docked side handle."""
+        """Restore window from docked side handle back to its exact pre-dock position."""
         self.is_side_docked = False
         self.dock_handle.hide()
 
         screen_obj = self.dock_handle.screen() or self.screen() or QApplication.primaryScreen()
         screen = screen_obj.availableGeometry()
-        win_w = self.width()
-        win_h = self.height()
-        side = getattr(self.dock_handle, "dock_side", "right")
 
-        handle_y = self.dock_handle.y()
-        target_y = max(screen.top() + 10, min(screen.bottom() - win_h - 10, handle_y - win_h // 4))
+        # Restore window to its exact pre-dock position if available
+        restore_geo = getattr(self, "pre_dock_geo", None)
+        if restore_geo is None:
+            pre_str = self.settings.get("pre_dock_geometry") or self.settings.get("geometry")
+            if pre_str and "+" in pre_str:
+                try:
+                    dims, pos = pre_str.split("+", 1)
+                    w, h = map(int, dims.split("x"))
+                    x, y = map(int, pos.split("+"))
+                    restore_geo = QRect(x, y, w, h)
+                except Exception:
+                    pass
 
-        if side == "right":
-            target_x = screen.right() - win_w - 12
+        if restore_geo is not None:
+            w = max(300, min(restore_geo.width(), screen.width()))
+            h = max(240, min(restore_geo.height(), screen.height()))
+            # Clamp position so it is fully accessible on the user's active screen
+            x = max(screen.left() - w + 100, min(screen.right() - 100, restore_geo.x()))
+            y = max(screen.top(), min(screen.bottom() - 100, restore_geo.y()))
+            self.setGeometry(x, y, w, h)
         else:
-            target_x = screen.left() + 12
+            win_w = self.width()
+            win_h = self.height()
+            side = getattr(self.dock_handle, "dock_side", "right")
+            handle_y = self.dock_handle.y()
+            target_y = max(screen.top() + 10, min(screen.bottom() - win_h - 10, handle_y - win_h // 4))
+            target_x = screen.right() - win_w - 12 if side == "right" else screen.left() + 12
+            self.setGeometry(target_x, target_y, win_w, win_h)
 
-        self.move(target_x, target_y)
         self.activate_app_window()
         if hasattr(self, "tray_dock_act"):
             self.tray_dock_act.setText("Dock to Side")
