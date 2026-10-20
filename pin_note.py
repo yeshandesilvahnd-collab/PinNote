@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
     QFont, QTextCursor, QTextDocumentFragment, QTextDocument, QColor,
     QKeySequence, QShortcut, QTextTableFormat, QTextLength,
     QIcon, QPixmap, QPainter, QTextCharFormat, QAction, QActionGroup,
-    QCursor, QImage, QPen, QBrush
+    QCursor, QImage, QPen, QBrush, QPainterPath
 )
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
@@ -659,14 +659,14 @@ class SideDockHandle(QWidget):
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(26, 72)
+        self.setFixedSize(30, 84)
         self.drag_start_pos = None
         self.drag_start_geo = None
         self.has_dragged = False
         self.is_hovered = False
         self.dock_side = "right"
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Click to Expand PinNote (Drag to reposition)")
+        self.setToolTip("Click to Expand PinNote (Drag vertically to reposition)")
 
     def enterEvent(self, event):
         self.is_hovered = True
@@ -682,33 +682,67 @@ class SideDockHandle(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        t = THEMES[self.parent_app.theme]
-        bg_color = QColor(t["bg_title"])
-        border_color = QColor(t["accent"]) if self.is_hovered else QColor(t["border"])
-        arrow_color = QColor(t["accent"]) if self.is_hovered else QColor(t["text"])
+        theme_name = getattr(self.parent_app, "theme", "dark")
+        t = THEMES.get(theme_name, THEMES["dark"])
+        bg_color = QColor(t.get("card_bg", "#222226")) if not self.is_hovered else QColor(t.get("bg", "#18181B"))
+        border_color = QColor(t.get("accent", "#2563EB")) if self.is_hovered else QColor(t.get("border", "#3F3F46"))
+        arrow_color = QColor("#FFFFFF") if (theme_name == "dark" or self.is_hovered) else QColor(t.get("text", "#0F172A"))
+        grip_color = QColor(t.get("accent", "#2563EB")) if self.is_hovered else QColor(t.get("text_muted", "#71717A"))
 
         w = self.width()
         h = self.height()
+        r = 10.0  # corner radius
 
-        painter.setPen(QPen(border_color, 1.2))
-        painter.setBrush(QBrush(bg_color))
+        path = QPainterPath()
+        if self.dock_side == "right":
+            # Tab on right edge: rounded corners on the LEFT side (facing into screen)
+            path.moveTo(w, 0)
+            path.lineTo(r, 0)
+            path.quadTo(0, 0, 0, r)
+            path.lineTo(0, h - r)
+            path.quadTo(0, h, r, h)
+            path.lineTo(w, h)
+            path.closeSubpath()
+        else:
+            # Tab on left edge: rounded corners on the RIGHT side (facing into screen)
+            path.moveTo(0, 0)
+            path.lineTo(w - r, 0)
+            path.quadTo(w, 0, w, r)
+            path.lineTo(w, h - r)
+            path.quadTo(w, h, w - r, h)
+            path.lineTo(0, h)
+            path.closeSubpath()
+
+        # Background fill
+        painter.fillPath(path, QBrush(bg_color))
+
+        # Border stroke
+        pen_width = 1.8 if self.is_hovered else 1.2
+        painter.strokePath(path, QPen(border_color, pen_width))
+
+        # Drag grip dots (2 top, 2 bottom)
+        mid_y = h // 2
+        mid_x = w // 2
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(grip_color))
+        dot_r = 2
+        painter.drawEllipse(QPoint(mid_x, mid_y - 24), dot_r, dot_r)
+        painter.drawEllipse(QPoint(mid_x, mid_y - 18), dot_r, dot_r)
+        painter.drawEllipse(QPoint(mid_x, mid_y + 18), dot_r, dot_r)
+        painter.drawEllipse(QPoint(mid_x, mid_y + 24), dot_r, dot_r)
+
+        # Chevron arrow in center
+        arrow_pen = QPen(arrow_color, 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(arrow_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
         if self.dock_side == "right":
-            # Tab on right edge: rounded corners on the left
-            painter.drawRoundedRect(0, 0, w + 12, h, 8, 8)
-            # Left chevron arrow '<'
-            painter.setPen(QPen(arrow_color, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            mid_y = h // 2
-            mid_x = w // 2 - 1
+            # Points LEFT (into screen to expand)
             painter.drawLine(mid_x + 3, mid_y - 7, mid_x - 3, mid_y)
             painter.drawLine(mid_x - 3, mid_y, mid_x + 3, mid_y + 7)
         else:
-            # Tab on left edge: rounded corners on the right
-            painter.drawRoundedRect(-12, 0, w + 12, h, 8, 8)
-            # Right chevron arrow '>'
-            painter.setPen(QPen(arrow_color, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            mid_y = h // 2
-            mid_x = w // 2 + 1
+            # Points RIGHT (into screen to expand)
             painter.drawLine(mid_x - 3, mid_y - 7, mid_x + 3, mid_y)
             painter.drawLine(mid_x + 3, mid_y, mid_x - 3, mid_y + 7)
 
@@ -724,8 +758,9 @@ class SideDockHandle(QWidget):
             delta = event.globalPosition().toPoint() - self.drag_start_pos
             if delta.manhattanLength() > 4:
                 self.has_dragged = True
-                self.setCursor(Qt.CursorShape.SizeAllCursor)
-                screen = QApplication.primaryScreen().availableGeometry()
+                self.setCursor(Qt.CursorShape.SizeVerCursor)
+                screen_obj = QApplication.screenAt(event.globalPosition().toPoint()) or self.screen() or QApplication.primaryScreen()
+                screen = screen_obj.availableGeometry()
 
                 new_y = self.drag_start_geo.y() + delta.y()
                 new_y = max(screen.top() + 8, min(screen.bottom() - self.height() - 8, new_y))
@@ -2048,10 +2083,12 @@ class PinNoteApp(QMainWindow):
     def dock_to_side(self):
         """Minimize/dock window flush into screen edge handle."""
         self.is_side_docked = True
+        screen_obj = self.screen() or QApplication.primaryScreen()
+        screen = screen_obj.availableGeometry()
+
         self.save_now()
         self.hide()
 
-        screen = QApplication.primaryScreen().availableGeometry()
         saved_y = self.settings.get("dock_y")
         side = self.settings.get("dock_side", "right")
 
@@ -2068,16 +2105,20 @@ class PinNoteApp(QMainWindow):
         self.dock_handle.move(x, y)
         self.dock_handle.show()
         self.dock_handle.raise_()
+        self.dock_handle.update()
+        if hasattr(self, "tray_dock_act"):
+            self.tray_dock_act.setText("Expand from Side")
 
     def expand_from_side(self):
         """Restore window from docked side handle."""
         self.is_side_docked = False
         self.dock_handle.hide()
 
-        screen = QApplication.primaryScreen().availableGeometry()
+        screen_obj = self.dock_handle.screen() or self.screen() or QApplication.primaryScreen()
+        screen = screen_obj.availableGeometry()
         win_w = self.width()
         win_h = self.height()
-        side = self.dock_handle.dock_side
+        side = getattr(self.dock_handle, "dock_side", "right")
 
         handle_y = self.dock_handle.y()
         target_y = max(screen.top() + 10, min(screen.bottom() - win_h - 10, handle_y - win_h // 4))
@@ -2089,6 +2130,8 @@ class PinNoteApp(QMainWindow):
 
         self.move(target_x, target_y)
         self.activate_app_window()
+        if hasattr(self, "tray_dock_act"):
+            self.tray_dock_act.setText("Dock to Side")
         self.save_now()
 
     def toggle_side_dock(self):
