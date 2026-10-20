@@ -733,6 +733,7 @@ class PinNoteApp(QMainWindow):
 
         # 4. Footer Bar
         self._create_footer()
+        self.editor.cursorPositionChanged.connect(self._update_font_display)
 
         self.setCentralWidget(self.central_widget)
 
@@ -879,6 +880,7 @@ class PinNoteApp(QMainWindow):
         self.font_dec_btn = QPushButton("A-", self.footer)
         self.font_dec_btn.setFixedSize(24, 20)
         self.font_dec_btn.setFont(get_app_font(8))
+        self.font_dec_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.font_dec_btn.setToolTip(f"Decrease Font Size ({MOD_KEY}+-)")
         self.font_dec_btn.clicked.connect(self.decrease_font_size)
         f_layout.addWidget(self.font_dec_btn)
@@ -891,6 +893,7 @@ class PinNoteApp(QMainWindow):
         self.font_inc_btn = QPushButton("A+", self.footer)
         self.font_inc_btn.setFixedSize(24, 20)
         self.font_inc_btn.setFont(get_app_font(8))
+        self.font_inc_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.font_inc_btn.setToolTip(f"Increase Font Size ({MOD_KEY}++)")
         self.font_inc_btn.clicked.connect(self.increase_font_size)
         f_layout.addWidget(self.font_inc_btn)
@@ -898,6 +901,7 @@ class PinNoteApp(QMainWindow):
         # Settings button (opens settings menu with boot and idle transparency options)
         self.settings_btn = QPushButton(self.footer)
         self.settings_btn.setFixedSize(24, 20)
+        self.settings_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.settings_btn.setToolTip("Settings")
         self.settings_btn.clicked.connect(self.open_settings)
         self.settings_btn.setProperty("class", "ghost_btn")
@@ -1387,7 +1391,7 @@ class PinNoteApp(QMainWindow):
             it = block.begin()
             while not it.atEnd():
                 fragment = it.fragment()
-                if fragment.isValid():
+                if fragment.isValid() and not fragment.charFormat().isImageFormat():
                     c = QTextCursor(doc)
                     c.setPosition(fragment.position())
                     c.setPosition(fragment.position() + fragment.length(), QTextCursor.MoveMode.KeepAnchor)
@@ -1405,23 +1409,108 @@ class PinNoteApp(QMainWindow):
         self.editor.setTextCursor(c_restore)
         self.editor.setFontPointSize(new_size)
 
+    def _change_selection_font_size(self, delta: int):
+        """Increases or decreases font size for only the currently selected text."""
+        cursor = self.editor.textCursor()
+        if not cursor.hasSelection():
+            return
+
+        sel_start = min(cursor.position(), cursor.anchor())
+        sel_end = max(cursor.position(), cursor.anchor())
+        doc = self.editor.document()
+
+        # Collect fragment ranges within selection first to avoid iterator invalidation
+        ranges = []
+        block = doc.findBlock(sel_start)
+        while block.isValid() and block.position() < sel_end:
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and not frag.charFormat().isImageFormat():
+                    frag_start = frag.position()
+                    frag_end = frag_start + frag.length()
+                    ov_start = max(sel_start, frag_start)
+                    ov_end = min(sel_end, frag_end)
+                    if ov_start < ov_end:
+                        cur_size = frag.charFormat().fontPointSize()
+                        if cur_size <= 0:
+                            cur_size = float(self.font_size)
+                        ranges.append((ov_start, ov_end, cur_size))
+                it += 1
+            block = block.next()
+
+        cursor.beginEditBlock()
+        first_new_size = None
+        if ranges:
+            for start, end, cur_size in ranges:
+                new_size = max(6.0, min(72.0, cur_size + delta))
+                if first_new_size is None:
+                    first_new_size = new_size
+                fc = QTextCursor(doc)
+                fc.setPosition(start)
+                fc.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+                fmt = QTextCharFormat()
+                fmt.setFontPointSize(new_size)
+                fc.mergeCharFormat(fmt)
+        else:
+            # Fallback if no text fragments matched
+            cur_size = cursor.charFormat().fontPointSize()
+            if cur_size <= 0:
+                cur_size = float(self.font_size)
+            new_size = max(6.0, min(72.0, cur_size + delta))
+            first_new_size = new_size
+            fmt = QTextCharFormat()
+            fmt.setFontPointSize(new_size)
+            cursor.mergeCharFormat(fmt)
+        cursor.endEditBlock()
+
+        # Restore selection and ensure focus remains active in editor
+        c_restore = self.editor.textCursor()
+        c_restore.setPosition(sel_start)
+        c_restore.setPosition(sel_end, QTextCursor.MoveMode.KeepAnchor)
+        self.editor.setTextCursor(c_restore)
+        self.editor.setFocus()
+
+        if first_new_size is not None:
+            self.editor.setFontPointSize(first_new_size)
+            if hasattr(self, "font_size_label"):
+                self.font_size_label.setText(f"{int(round(first_new_size))}pt")
+
+        self.save_now()
+
     def increase_font_size(self):
-        if self.font_size < 32:
-            self.font_size += 1
-            self._apply_font_size_to_document(self.font_size)
-            self._update_font_display()
-            self.save_now()
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            self._change_selection_font_size(+1)
+        else:
+            if self.font_size < 32:
+                self.font_size += 1
+                self._apply_font_size_to_document(self.font_size)
+                self._update_font_display()
+                self.save_now()
 
     def decrease_font_size(self):
-        if self.font_size > 8:
-            self.font_size -= 1
-            self._apply_font_size_to_document(self.font_size)
-            self._update_font_display()
-            self.save_now()
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            self._change_selection_font_size(-1)
+        else:
+            if self.font_size > 8:
+                self.font_size -= 1
+                self._apply_font_size_to_document(self.font_size)
+                self._update_font_display()
+                self.save_now()
 
     def _update_font_display(self):
-        if hasattr(self, "font_size_label"):
-            self.font_size_label.setText(f"{self.font_size}pt")
+        """Update font size label in footer to reflect current cursor or selection point size."""
+        if not hasattr(self, "font_size_label"):
+            return
+        cursor = self.editor.textCursor()
+        size = cursor.charFormat().fontPointSize()
+        if size <= 0:
+            size = self.editor.currentCharFormat().fontPointSize()
+        if size <= 0:
+            size = float(self.font_size)
+        self.font_size_label.setText(f"{int(round(size))}pt")
 
     def toggle_bold(self):
         w = QFont.Weight.Bold if self.editor.fontWeight() != QFont.Weight.Bold else QFont.Weight.Normal
