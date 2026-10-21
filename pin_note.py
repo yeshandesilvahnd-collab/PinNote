@@ -1438,15 +1438,47 @@ class PinNoteApp(QMainWindow):
         words = len(plain.split()) if plain else 0
         self.counter_label.setText(f"{words} words • {chars} chars")
 
+    def _apply_always_on_top(self):
+        """Apply Always-on-Top state seamlessly via Win32 SetWindowPos without hiding or flickering."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                hwnd = int(self.winId())
+                SetWindowPos = ctypes.windll.user32.SetWindowPos
+                SetWindowPos.argtypes = [
+                    wintypes.HWND, wintypes.HWND,
+                    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                    wintypes.UINT
+                ]
+                SetWindowPos.restype = wintypes.BOOL
+
+                HWND_TOPMOST = wintypes.HWND(-1)
+                HWND_NOTOPMOST = wintypes.HWND(-2)
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_NOACTIVATE = 0x0010
+                SWP_SHOWWINDOW = 0x0040
+
+                target = HWND_TOPMOST if self.is_pinned else HWND_NOTOPMOST
+                SetWindowPos(
+                    wintypes.HWND(hwnd),
+                    target,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+                )
+            except Exception:
+                pass
+        else:
+            geo = self.geometry()
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.is_pinned)
+            self.setGeometry(geo)
+            self.show()
+
     def toggle_always_on_top(self):
-        """Toggle Always-on-Top mode without losing window position."""
+        """Toggle Always-on-Top mode seamlessly without losing window position, hiding, or delay."""
         self.is_pinned = not self.is_pinned
-        geo = self.geometry()
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.is_pinned)
-        self.setGeometry(geo)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        self._apply_always_on_top()
         self._update_pin_button_style()
         if hasattr(self, "tray_pin_act"):
             self.tray_pin_act.setChecked(self.is_pinned)
@@ -2262,6 +2294,7 @@ class PinNoteApp(QMainWindow):
                 ctypes.windll.user32.SetForegroundWindow(hwnd)
             except Exception:
                 pass
+        self._apply_always_on_top()
 
     def closeEvent(self, event):
         self.save_now()
